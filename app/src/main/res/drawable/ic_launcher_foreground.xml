@@ -1,0 +1,16 @@
+<vector xmlns:android="http://schemas.android.com/apk/res/android"
+    android:width="108dp"
+    android:height="108dp"
+    android:viewportWidth="108"
+    android:viewportHeight="108">
+    <!-- A simple card glyph centred in the adaptive-icon safe zone. -->
+    <path
+        android:fillColor="#FDFBFA"
+        android:pathData="M42,32 h24 a4,4 0 0 1 4,4 v36 a4,4 0 0 1 -4,4 h-24 a4,4 0 0 1 -4,-4 v-36 a4,4 0 0 1 4,-4 z" />
+    <path
+        android:fillColor="#84A59D"
+        android:pathData="M46,40 h16 v10 h-16 z" />
+    <path
+        android:fillColor="#F6BD60"
+        android:pathData="M46,56 h16 v3 h-16 z M46,62 h16 v3 h-16 z M46,68 h10 v3 h-10 z" />
+</vector>

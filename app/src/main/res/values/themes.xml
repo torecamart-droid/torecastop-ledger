@@ -1,0 +1,10 @@
+<?xml version="1.0" encoding="utf-8"?>
+<resources>
+    <!-- Base application theme. Compose drives the in-app styling; this exists
+         so the manifest has a valid theme and the launch background matches
+         the brand. -->
+    <style name="Theme.TorecaStopLedger" parent="Theme.Material3.DayNight.NoActionBar">
+        <item name="android:statusBarColor">@color/cloud</item>
+        <item name="android:windowLightStatusBar">true</item>
+    </style>
+</resources>

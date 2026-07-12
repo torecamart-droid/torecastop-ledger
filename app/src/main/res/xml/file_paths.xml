@@ -1,0 +1,7 @@
+<?xml version="1.0" encoding="utf-8"?>
+<paths>
+    <!-- Exported zip bundles live here and are shared via FileProvider. -->
+    <cache-path name="exports" path="exports/" />
+    <!-- Sale photos captured by the app. -->
+    <files-path name="photos" path="photos/" />
+</paths>
