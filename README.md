@@ -28,6 +28,29 @@ also gained: multi-item sales (one transaction, many item lines), photo
 compression on capture, and the release pipeline (signing + R8 + unbundled
 barcode model).
 
+**v1.2** adds the trade feature and the UI round from the "UI Improvements &
+Trade Feature Plan" brief:
+
+- **Trades** — record two-sided card swaps: cards OUT of stock (scanned by SKU,
+  optional per-card cost basis) vs cards IN from the customer (manual name +
+  value — no SKU until intake), plus optional cash on top in either direction.
+  A live balance card shows the value-added headline before committing.
+  Decisions taken per the brief's recommendations: **T1** both metrics, true
+  margin as headline with value-swing fallback · **T2** cost basis optional,
+  never required · **T3** trades shown separately from sales in totals ·
+  **T4** separate `trades.csv` in the export zip · **T5** incoming cost basis
+  deferred to the intake workflow.
+- **UI Tier 1** — "Sale saved — Undo" snackbar; scan feedback (vibration +
+  beep + checkmark overlay); bottom-anchored **New Sale / New Trade** buttons
+  (**U1**); bigger, high-contrast running totals; friendlier no-session /
+  camera-permission / nothing-to-export states.
+- **UI Tier 2** — pre-export session summary; session history with read-only
+  detail and re-export; grouped sale/trade cards with a brief just-saved
+  highlight; richer totals (sales count, item count, cash total, trade value
+  added, trade cash).
+- **UI Tier 3** — "Add & scan next" rapid multi-card loop; photo thumbnail with
+  safe retake; local-time (Adelaide) display and export formatting confirmed.
+
 ## Project layout
 
 ```
@@ -47,21 +70,33 @@ torecastop-ledger/
         │   │   ├── Sale.kt             # entity — one transaction (header)
         │   │   ├── SaleItem.kt         # entity — one item line within a sale
         │   │   ├── SaleWithItems.kt    # Room relation: a sale + its item lines
-        │   │   ├── SessionDao.kt / SaleDao.kt / SaleItemDao.kt
-        │   │   ├── LedgerDatabase.kt   # Room database (v2)
+        │   │   ├── Trade.kt            # entity — one card swap (header + cash on top)
+        │   │   ├── TradeItem.kt        # entity — one card line (OUT w/ SKU, IN w/ name)
+        │   │   ├── TradeWithItems.kt   # Room relation + value-added maths (margin/swing)
+        │   │   ├── SessionSummary.kt   # end-of-day numbers (pre-export review, history)
+        │   │   ├── SessionDao.kt / SaleDao.kt / SaleItemDao.kt / TradeDao.kt / TradeItemDao.kt
+        │   │   ├── LedgerDatabase.kt   # Room database (v3; additive 2→3 migration)
         │   │   ├── LedgerRepository.kt # business rules; atomic multi-item writes
-        │   │   ├── PhotoStorage.kt     # per-sale photos + capture-time compression
-        │   │   └── LedgerExporter.kt   # builds the CSV + photos zip
+        │   │   ├── PhotoStorage.kt     # per-sale/trade photos + capture-time compression
+        │   │   └── LedgerExporter.kt   # builds the sales.csv + trades.csv + photos zip
         │   └── ui/
         │       ├── theme/              # brand palette + Material3 theme
         │       ├── scan/
-        │       │   └── BarcodeScannerScreen.kt   # CameraX + ML Kit Code 128 scanner
+        │       │   └── BarcodeScannerScreen.kt   # CameraX + ML Kit scanner + scan feedback
         │       └── session/
-        │           ├── ActiveSessionViewModel.kt # active session + totals + all actions
-        │           ├── ActiveSessionScreen.kt    # totals, multi-item entry, list, menu, share
+        │           ├── ActiveSessionViewModel.kt # session + totals + events/undo + all actions
+        │           ├── ActiveSessionScreen.kt    # totals, merged ledger, bottom buttons, menu
+        │           ├── SaleEntryScreen.kt        # full-screen sale entry (cart + scan-next loop)
+        │           ├── TradeEntryScreen.kt       # full-screen trade entry/edit + live balance
+        │           ├── SessionHistoryScreen.kt   # closed-session list + read-only detail
+        │           ├── ExportSummaryDialog.kt    # pre-export review of the day's numbers
+        │           ├── LedgerRows.kt             # shared sale/trade cards for the feeds
+        │           ├── LedgerEntry.kt            # merged newest-first sales+trades feed
+        │           ├── PhotoCaptureRow.kt        # shared add/retake/remove photo row
         │           ├── SaleEditDialog.kt         # edit/add/remove items + note; delete sale
-        │           ├── DraftItem.kt              # in-progress item held in the cart/editor
-        │           └── Format.kt                 # shared currency/time formatting
+        │           ├── DraftItem.kt              # in-progress sale item (cart/editor)
+        │           ├── DraftTradeItem.kt         # in-progress trade line (entry form)
+        │           └── Format.kt                 # shared AUD currency/time formatting
         └── res/                        # strings, colours, theme, launcher icon, file_paths
 ```
 
@@ -72,28 +107,48 @@ The data layer enforces the confirmed decisions:
 - **a sale is a transaction with one or more item lines** — a `Sale` header
   (note, photo, timestamp) plus N `SaleItem` lines (SKU, qty, price), written
   atomically; no auto-merging across sales
+- **a trade mirrors that shape** — a `Trade` header (note, photo, timestamp,
+  cash amount + direction) plus N `TradeItem` lines (direction OUT/IN, SKU or
+  card name, qty, trade value, optional cost basis), written atomically.
+  Value added is derived at read time: margin over cost when every OUT line
+  has a cost basis, otherwise the value swing at market
 
 The Active Session screen sits on top of that:
-- On launch it resumes today's active session (or opens one) and shows live
-  totals (items sold and `$`).
-- Build a sale as a **cart of items**: enter a SKU — typed, or scanned from the
-  printed Code 128 label (tap the scan icon) — with quantity and price, then
-  **Add item**; repeat for as many items as the customer buys. One optional note
-  and one optional photo cover the whole sale. **Save sale** commits every line
-  at once (a single not-yet-added item is included automatically, so single-item
-  sales stay one-tap fast).
-- Tap any sale to edit it: change, add or remove item lines, edit the note, or
-  delete the whole sale — while the session is active.
-- The overflow menu **exports** the session (CSV + `photos/` zipped and handed to
-  the Android share sheet) or **closes** it. After closing, the screen offers to
-  start a new session — keeping exactly one active at a time.
+- On launch it resumes today's active session (or opens one) and shows big,
+  sunlight-readable live totals — sales cash, items sold, and (once trades
+  exist) trade count, value added and net trade cash, kept separate from sales.
+- Two bottom-anchored buttons choose what you're recording: **New Sale** and
+  **New Trade** (thumb reach, one-handed).
+- A sale is a **cart of items**: enter a SKU — typed, or scanned from the
+  printed Code 128 label — with quantity and price, then **Add item** (or
+  **Add & scan next** to go straight back to the camera). One optional note and
+  one optional photo cover the whole sale. **Save sale** commits every line at
+  once (a single not-yet-added item is included automatically, so single-item
+  sales stay one-tap fast). A successful scan vibrates, beeps and flashes a
+  checkmark so it registers without looking.
+- A trade has two asymmetric sides: **cards out** (your stock — scan or type
+  the SKU, optional cost basis) and **cards in** (the customer's — name +
+  value, no SKU until intake), plus optional **cash on top** either way. A live
+  balance card shows OUT vs IN + cash and the value-added headline before you
+  commit.
+- Every save shows a **"saved — Undo"** snackbar, and the just-saved entry is
+  briefly highlighted in the ledger.
+- Tap any sale or trade to edit or delete it — while the session is active.
+- The overflow menu **exports** the session (after a review of the day's
+  numbers; `sales.csv` + `trades.csv` + `photos/` zipped and handed to the
+  Android share sheet), opens **Session history** (re-open past sessions
+  read-only and re-export their zips), or **closes** the session. After
+  closing, the screen offers to start a new one — keeping exactly one active
+  at a time.
 
 Captured photos are **compressed on capture** (longest edge ≤ 1600 px, JPEG
 quality 75, EXIF orientation applied) to keep storage and exports small. Photos
 live under `filesDir/photos/`; the export zip lands in `cacheDir/exports/` — both
 declared in `res/xml/file_paths.xml` and shared through the app's FileProvider.
-The export CSV has one row per item with a `sale_id` column that groups the lines
-of each transaction.
+`sales.csv` has one row per item with a `sale_id` column that groups the lines of
+each transaction. `trades.csv` (present when the session has trades) has one row
+per card line — direction, SKU/card name, values, optional cost basis — with the
+trade's cash, value swing, margin and headline value added repeated per row.
 
 ## How to build & run
 
@@ -167,11 +222,10 @@ throwaway debug key: a phone can't upgrade between a debug and a release build
 without uninstalling first. Don't hand debug builds to the team.
 
 ## Notes
-- The Room database is **v2** (multi-item sales). The upgrade from v1 uses
-  `fallbackToDestructiveMigration()` — installing v2 over an older build **wipes**
-  existing sessions/sales. Export anything worth keeping before upgrading. (This
-  was a deliberate clean-reset choice; swap in a real `Migration(1, 2)` if data
-  preservation is ever needed.)
+- The Room database is **v3** (adds the trade tables). The **2→3 upgrade is a
+  real migration** — purely additive, existing sessions/sales are kept. Only
+  the ancient pre-multi-item **v1** still falls back to a destructive wipe on
+  upgrade (the deliberate clean-reset choice from when v2 shipped).
 - Custom fonts (Nunito / Inter / Space Mono) are not yet bundled; the app uses
   Material3 default typography so it builds with no binary assets. Drop the font
   files into `res/font` and wire them into `Theme.kt` when they're ready.
