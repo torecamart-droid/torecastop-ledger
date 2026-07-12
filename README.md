@@ -97,6 +97,9 @@ of each transaction.
 
 ## How to build & run
 
+Setting this up on a fresh machine? See [SETUP.md](SETUP.md) for the clone +
+signing-keystore steps.
+
 This is a real Android project — it needs an Android build environment (it can't
 be compiled in a chat). Two options:
 
