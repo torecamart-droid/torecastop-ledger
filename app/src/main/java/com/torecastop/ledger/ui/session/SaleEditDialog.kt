@@ -140,7 +140,7 @@ private fun ItemEditor(
             OutlinedTextField(
                 value = item.priceText,
                 onValueChange = { input ->
-                    if (input.matches(EDIT_PRICE_REGEX)) onChange(item.copy(priceText = input))
+                    if (input.matches(MONEY_INPUT_REGEX)) onChange(item.copy(priceText = input))
                 },
                 label = { Text("Price") },
                 prefix = { Text("$") },
@@ -151,5 +151,3 @@ private fun ItemEditor(
         }
     }
 }
-
-private val EDIT_PRICE_REGEX = Regex("^\\d*\\.?\\d{0,2}$")
