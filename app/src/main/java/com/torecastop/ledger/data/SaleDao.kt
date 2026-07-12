@@ -20,6 +20,10 @@ interface SaleDao {
     @Delete
     suspend fun delete(sale: Sale)
 
+    /** Removes a sale by id (undo); the FK cascade removes its item lines. */
+    @Query("DELETE FROM sales WHERE id = :id")
+    suspend fun deleteById(id: Long)
+
     /** Live list of a session's sales with their items, newest first. */
     @Transaction
     @Query("SELECT * FROM sales WHERE sessionId = :sessionId ORDER BY timestamp DESC")
