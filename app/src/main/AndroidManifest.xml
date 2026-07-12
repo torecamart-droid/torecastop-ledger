@@ -6,6 +6,9 @@
     <uses-permission android:name="android.permission.CAMERA" />
     <uses-feature android:name="android.hardware.camera.any" android:required="false" />
 
+    <!-- Haptic confirmation on a successful barcode scan. -->
+    <uses-permission android:name="android.permission.VIBRATE" />
+
     <!-- Android 11+ package visibility: allow resolving a camera app for photo capture. -->
     <queries>
         <intent>
