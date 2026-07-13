@@ -5,6 +5,8 @@ import android.net.Uri
 import androidx.lifecycle.ViewModel
 import androidx.lifecycle.ViewModelProvider
 import androidx.lifecycle.viewModelScope
+import com.torecastop.ledger.BuildConfig
+import com.torecastop.ledger.data.CashAdjustment
 import com.torecastop.ledger.data.LedgerExporter
 import com.torecastop.ledger.data.LedgerRepository
 import com.torecastop.ledger.data.Sale
@@ -15,6 +17,8 @@ import com.torecastop.ledger.data.SessionSummary
 import com.torecastop.ledger.data.Trade
 import com.torecastop.ledger.data.TradeItem
 import com.torecastop.ledger.data.TradeWithItems
+import com.torecastop.ledger.update.UpdateChecker
+import com.torecastop.ledger.update.UpdateInfo
 import kotlinx.coroutines.Dispatchers
 import kotlinx.coroutines.ExperimentalCoroutinesApi
 import kotlinx.coroutines.channels.Channel
@@ -42,7 +46,8 @@ sealed interface LedgerEvent {
 data class SessionDetail(
     val sales: List<SaleWithItems>,
     val trades: List<TradeWithItems>,
-    val summary: SessionSummary
+    val summary: SessionSummary,
+    val cashAdjustments: List<CashAdjustment>
 )
 
 /**
@@ -75,6 +80,18 @@ class ActiveSessionViewModel(private val repository: LedgerRepository) : ViewMod
         .flatMapLatest { repository.observeSessionTotal(it.id) }
         .stateIn(viewModelScope, SharingStarted.WhileSubscribed(5_000), 0.0)
 
+    /** Cash adjustments (paid-out / cash-in) for the active session. (v1.3) */
+    val cashAdjustments: StateFlow<List<CashAdjustment>> = session
+        .filterNotNull()
+        .flatMapLatest { repository.observeCashAdjustments(it.id) }
+        .stateIn(viewModelScope, SharingStarted.WhileSubscribed(5_000), emptyList())
+
+    /** Signed net of the active session's cash adjustments. (v1.3) */
+    val cashAdjustmentNet: StateFlow<Double> = session
+        .filterNotNull()
+        .flatMapLatest { repository.observeCashAdjustmentNet(it.id) }
+        .stateIn(viewModelScope, SharingStarted.WhileSubscribed(5_000), 0.0)
+
     /** All sessions, newest first — feeds the history screen. */
     val allSessions: StateFlow<List<Session>> = repository.observeAllSessions()
         .stateIn(viewModelScope, SharingStarted.WhileSubscribed(5_000), emptyList())
@@ -86,6 +103,10 @@ class ActiveSessionViewModel(private val repository: LedgerRepository) : ViewMod
     private val _events = Channel<LedgerEvent>(Channel.BUFFERED)
     val events: Flow<LedgerEvent> = _events.receiveAsFlow()
 
+    /** A newer sideloaded build, if the update check found one. (v1.3) */
+    private val _updateAvailable = MutableStateFlow<UpdateInfo?>(null)
+    val updateAvailable: StateFlow<UpdateInfo?> = _updateAvailable.asStateFlow()
+
     /** The most recent save, so the snackbar's Undo can take it back. */
     private data class LastSaved(val isTrade: Boolean, val id: Long, val photoPath: String?)
     private var lastSaved: LastSaved? = null
@@ -93,6 +114,15 @@ class ActiveSessionViewModel(private val repository: LedgerRepository) : ViewMod
     init {
         // Resume today's session on first launch, opening one if none exists.
         viewModelScope.launch { repository.getOrStartActiveSession() }
+        // Fire-and-forget update check; no-ops without a configured manifest.
+        viewModelScope.launch {
+            _updateAvailable.value = UpdateChecker.check(BuildConfig.VERSION_CODE)
+        }
+    }
+
+    /** Dismisses the update banner for this session. (v1.3) */
+    fun dismissUpdate() {
+        _updateAvailable.value = null
     }
 
     // --- Sales ---
@@ -184,9 +214,41 @@ class ActiveSessionViewModel(private val repository: LedgerRepository) : ViewMod
         viewModelScope.launch { repository.closeSession(current) }
     }
 
+    /** Closes the current session, recording the end-of-day cash count. (v1.3) */
+    fun closeSessionWithCount(countedCash: Double?, cashCountPhotoPath: String?) {
+        val current = session.value ?: return
+        viewModelScope.launch {
+            repository.closeSessionWithCount(current, countedCash, cashCountPhotoPath)
+        }
+    }
+
     /** Opens a fresh session named for today. */
     fun startNewSession() {
         viewModelScope.launch { repository.getOrStartActiveSession() }
+    }
+
+    /** Sets or clears the optional show/event label on the active session. (v1.3) */
+    fun setSessionLabel(label: String?) {
+        val id = session.value?.id ?: return
+        viewModelScope.launch { repository.setSessionLabel(id, label) }
+    }
+
+    /** Records (or clears) the starting cash float for the active session. (v1.3) */
+    fun setStartingFloat(amount: Double?) {
+        val id = session.value?.id ?: return
+        viewModelScope.launch { repository.setStartingFloat(id, amount) }
+    }
+
+    /** Logs a cash adjustment; [amount] is signed (+ added, − paid out). (v1.3) */
+    fun addCashAdjustment(amount: Double, reason: String) {
+        val id = session.value?.id ?: return
+        if (amount == 0.0 || reason.isBlank()) return
+        viewModelScope.launch { repository.addCashAdjustment(id, amount, reason) }
+    }
+
+    /** Removes a logged cash adjustment. (v1.3) */
+    fun deleteCashAdjustment(id: Long) {
+        viewModelScope.launch { repository.deleteCashAdjustmentById(id) }
     }
 
     // --- Summary / history / export ---
@@ -197,12 +259,21 @@ class ActiveSessionViewModel(private val repository: LedgerRepository) : ViewMod
 
     /** Loads a past session's full ledger for the read-only history detail. */
     suspend fun loadSessionDetail(sessionId: Long): SessionDetail {
+        val loadedSession = repository.getSession(sessionId)
         val sessionSales = repository.getSalesForExport(sessionId)
         val sessionTrades = repository.getTradesForExport(sessionId)
+        val adjustments = repository.getCashAdjustmentsForExport(sessionId)
         return SessionDetail(
             sales = sessionSales,
             trades = sessionTrades,
-            summary = SessionSummary.from(sessionSales, sessionTrades)
+            summary = SessionSummary.from(
+                sessionSales,
+                sessionTrades,
+                startingFloat = loadedSession?.startingFloat,
+                countedCash = loadedSession?.countedCash,
+                cashAdjustmentsNet = adjustments.sumOf { it.amount }
+            ),
+            cashAdjustments = adjustments
         )
     }
 
@@ -214,8 +285,9 @@ class ActiveSessionViewModel(private val repository: LedgerRepository) : ViewMod
         viewModelScope.launch {
             val exportSales = repository.getSalesForExport(target.id)
             val exportTrades = repository.getTradesForExport(target.id)
+            val exportAdjustments = repository.getCashAdjustmentsForExport(target.id)
             val uri = withContext(Dispatchers.IO) {
-                LedgerExporter.buildZip(context, target, exportSales, exportTrades)
+                LedgerExporter.buildZip(context, target, exportSales, exportTrades, exportAdjustments)
             }
             onReady(uri)
         }

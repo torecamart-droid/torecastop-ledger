@@ -92,11 +92,13 @@ fun TradeEntryScreen(
     var outQuantity by remember { mutableStateOf(1) }
     var outValueText by remember { mutableStateOf("") }
     var outCostText by remember { mutableStateOf("") }
+    var outNote by remember { mutableStateOf("") }
 
     // Pending (not yet added) IN line.
     var inName by remember { mutableStateOf("") }
     var inQuantity by remember { mutableStateOf(1) }
     var inValueText by remember { mutableStateOf("") }
+    var inNote by remember { mutableStateOf("") }
 
     var cashText by remember {
         mutableStateOf(
@@ -111,6 +113,7 @@ fun TradeEntryScreen(
     var photoPath by remember { mutableStateOf(existing?.trade?.photoPath) }
     var showScanner by remember { mutableStateOf(false) }
     var confirmDelete by remember { mutableStateOf(false) }
+    var confirmHighValue by remember { mutableStateOf(false) }
 
     fun cancel() {
         // A photo taken for a NEW trade isn't attached to anything yet; for an
@@ -135,26 +138,28 @@ fun TradeEntryScreen(
         sku = outSku,
         quantity = outQuantity,
         valueText = outValueText,
-        costText = outCostText
+        costText = outCostText,
+        note = outNote
     )
 
     fun pendingIn() = DraftTradeItem(
         direction = TradeItem.DIRECTION_IN,
         cardName = inName,
         quantity = inQuantity,
-        valueText = inValueText
+        valueText = inValueText,
+        note = inNote
     )
 
     fun addPendingOut() {
         if (!pendingOut().isValid) return
         outItems.add(pendingOut())
-        outSku = ""; outQuantity = 1; outValueText = ""; outCostText = ""
+        outSku = ""; outQuantity = 1; outValueText = ""; outCostText = ""; outNote = ""
     }
 
     fun addPendingIn() {
         if (!pendingIn().isValid) return
         inItems.add(pendingIn())
-        inName = ""; inQuantity = 1; inValueText = ""
+        inName = ""; inQuantity = 1; inValueText = ""; inNote = ""
     }
 
     // Live totals include valid pending lines, so the balance reads true while typing.
@@ -175,7 +180,7 @@ fun TradeEntryScreen(
 
     val canSave = effectiveOut.isNotEmpty() || effectiveIn.isNotEmpty()
 
-    fun save() {
+    fun commitSave() {
         if (!canSave) return
         val items = (effectiveOut + effectiveIn).map { it.toTradeItem() }
         if (isEdit) {
@@ -193,6 +198,14 @@ fun TradeEntryScreen(
         }
     }
 
+    // Guard a big trade (either side) behind a confirm — a typo on a
+    // high-value card is expensive to miss.
+    val highValueGuard = maxOf(outTotal, inTotal)
+    fun attemptSave() {
+        if (!canSave) return
+        if (highValueGuard >= HIGH_VALUE_CONFIRM_THRESHOLD) confirmHighValue = true else commitSave()
+    }
+
     if (confirmDelete && existing != null) {
         AlertDialog(
             onDismissRequest = { confirmDelete = false },
@@ -206,6 +219,14 @@ fun TradeEntryScreen(
             dismissButton = {
                 TextButton(onClick = { confirmDelete = false }) { Text("Cancel") }
             }
+        )
+    }
+
+    if (confirmHighValue) {
+        HighValueConfirmDialog(
+            amount = highValueGuard,
+            onConfirm = { confirmHighValue = false; commitSave() },
+            onDismiss = { confirmHighValue = false }
         )
     }
 
@@ -234,7 +255,7 @@ fun TradeEntryScreen(
         bottomBar = {
             Surface(shadowElevation = 8.dp) {
                 Button(
-                    onClick = { save() },
+                    onClick = { attemptSave() },
                     enabled = canSave,
                     modifier = Modifier
                         .fillMaxWidth()
@@ -282,6 +303,14 @@ fun TradeEntryScreen(
                         Icon(Icons.Filled.QrCodeScanner, contentDescription = "Scan barcode")
                     }
                 },
+                modifier = Modifier.fillMaxWidth()
+            )
+            Spacer(modifier = Modifier.height(8.dp))
+            OutlinedTextField(
+                value = outNote,
+                onValueChange = { outNote = it },
+                label = { Text("Item note — serial no. / condition (optional)") },
+                singleLine = true,
                 modifier = Modifier.fillMaxWidth()
             )
             Spacer(modifier = Modifier.height(8.dp))
@@ -339,6 +368,14 @@ fun TradeEntryScreen(
                 value = inName,
                 onValueChange = { inName = it },
                 label = { Text("Card name") },
+                singleLine = true,
+                modifier = Modifier.fillMaxWidth()
+            )
+            Spacer(modifier = Modifier.height(8.dp))
+            OutlinedTextField(
+                value = inNote,
+                onValueChange = { inNote = it },
+                label = { Text("Item note — serial no. / condition (optional)") },
                 singleLine = true,
                 modifier = Modifier.fillMaxWidth()
             )
@@ -482,6 +519,13 @@ private fun TradeDraftRow(item: DraftTradeItem, onRemove: () -> Unit) {
                 style = MaterialTheme.typography.bodySmall,
                 color = MaterialTheme.colorScheme.onSurfaceVariant
             )
+            if (item.note.isNotBlank()) {
+                Text(
+                    item.note,
+                    style = MaterialTheme.typography.bodySmall,
+                    color = MaterialTheme.colorScheme.onSurfaceVariant
+                )
+            }
         }
         Text(formatCurrency(item.lineValue), style = MaterialTheme.typography.bodyLarge)
         IconButton(onClick = onRemove) {

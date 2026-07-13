@@ -19,12 +19,35 @@ data class SessionSummary(
     /** Epoch millis of the earliest recorded entry; null when there are none. */
     val firstTimestamp: Long?,
     /** Epoch millis of the latest recorded entry; null when there are none. */
-    val lastTimestamp: Long?
+    val lastTimestamp: Long?,
+    /** Cash in the drawer at open, if counted. (v1.3) */
+    val startingFloat: Double? = null,
+    /** Cash counted in the drawer at close, if counted. (v1.3) */
+    val countedCash: Double? = null,
+    /** Signed net of the session's cash adjustments. (v1.3) */
+    val cashAdjustmentsNet: Double = 0.0
 ) {
     val isEmpty: Boolean get() = saleCount == 0 && tradeCount == 0
 
+    /** Cash the drawer should hold: float + cash sales + net trade cash + adjustments. */
+    val expectedCash: Double
+        get() = (startingFloat ?: 0.0) + cashTotal + tradeCash + cashAdjustmentsNet
+
+    /** Counted minus expected; null until the drawer is counted. */
+    val cashVariance: Double? get() = countedCash?.let { it - expectedCash }
+
+    /** Whether there's any reconciliation data worth showing. */
+    val hasReconciliation: Boolean
+        get() = startingFloat != null || countedCash != null || cashAdjustmentsNet != 0.0
+
     companion object {
-        fun from(sales: List<SaleWithItems>, trades: List<TradeWithItems>): SessionSummary {
+        fun from(
+            sales: List<SaleWithItems>,
+            trades: List<TradeWithItems>,
+            startingFloat: Double? = null,
+            countedCash: Double? = null,
+            cashAdjustmentsNet: Double = 0.0
+        ): SessionSummary {
             val timestamps = sales.map { it.sale.timestamp } + trades.map { it.trade.timestamp }
             return SessionSummary(
                 saleCount = sales.size,
@@ -34,7 +57,10 @@ data class SessionSummary(
                 tradeValueAdded = trades.sumOf { it.valueAdded },
                 tradeCash = trades.sumOf { it.cashReceived },
                 firstTimestamp = timestamps.minOrNull(),
-                lastTimestamp = timestamps.maxOrNull()
+                lastTimestamp = timestamps.maxOrNull(),
+                startingFloat = startingFloat,
+                countedCash = countedCash,
+                cashAdjustmentsNet = cashAdjustmentsNet
             )
         }
     }

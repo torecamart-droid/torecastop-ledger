@@ -8,8 +8,11 @@ import androidx.room.migration.Migration
 import androidx.sqlite.db.SupportSQLiteDatabase
 
 @Database(
-    entities = [Session::class, Sale::class, SaleItem::class, Trade::class, TradeItem::class],
-    version = 3,
+    entities = [
+        Session::class, Sale::class, SaleItem::class, Trade::class, TradeItem::class,
+        CashAdjustment::class
+    ],
+    version = 4,
     exportSchema = false
 )
 abstract class LedgerDatabase : RoomDatabase() {
@@ -19,6 +22,7 @@ abstract class LedgerDatabase : RoomDatabase() {
     abstract fun saleItemDao(): SaleItemDao
     abstract fun tradeDao(): TradeDao
     abstract fun tradeItemDao(): TradeItemDao
+    abstract fun cashAdjustmentDao(): CashAdjustmentDao
 
     companion object {
         @Volatile private var INSTANCE: LedgerDatabase? = null
@@ -60,6 +64,38 @@ abstract class LedgerDatabase : RoomDatabase() {
             }
         }
 
+        /**
+         * v4 is the v1.3 batch — all additive, so existing data is kept:
+         *  - per-line notes on sale/trade items (serial numbers, condition)
+         *  - session show/event label + cash-reconciliation fields
+         *  - the cash_adjustments table (paid-out / cash-in log)
+         */
+        private val MIGRATION_3_4 = object : Migration(3, 4) {
+            override fun migrate(db: SupportSQLiteDatabase) {
+                db.execSQL("ALTER TABLE `sale_items` ADD COLUMN `note` TEXT")
+                db.execSQL("ALTER TABLE `trade_items` ADD COLUMN `note` TEXT")
+
+                db.execSQL("ALTER TABLE `sessions` ADD COLUMN `label` TEXT")
+                db.execSQL("ALTER TABLE `sessions` ADD COLUMN `startingFloat` REAL")
+                db.execSQL("ALTER TABLE `sessions` ADD COLUMN `countedCash` REAL")
+                db.execSQL("ALTER TABLE `sessions` ADD COLUMN `cashCountPhotoPath` TEXT")
+
+                db.execSQL(
+                    "CREATE TABLE IF NOT EXISTS `cash_adjustments` (" +
+                        "`id` INTEGER PRIMARY KEY AUTOINCREMENT NOT NULL, " +
+                        "`sessionId` INTEGER NOT NULL, " +
+                        "`amount` REAL NOT NULL, " +
+                        "`reason` TEXT NOT NULL, " +
+                        "`timestamp` INTEGER NOT NULL, " +
+                        "FOREIGN KEY(`sessionId`) REFERENCES `sessions`(`id`) " +
+                        "ON UPDATE NO ACTION ON DELETE CASCADE)"
+                )
+                db.execSQL(
+                    "CREATE INDEX IF NOT EXISTS `index_cash_adjustments_sessionId` ON `cash_adjustments` (`sessionId`)"
+                )
+            }
+        }
+
         fun get(context: Context): LedgerDatabase =
             INSTANCE ?: synchronized(this) {
                 INSTANCE ?: Room.databaseBuilder(
@@ -67,8 +103,9 @@ abstract class LedgerDatabase : RoomDatabase() {
                     LedgerDatabase::class.java,
                     "torecastop_ledger.db"
                 )
-                    // v2→v3 (trade tables) migrates in place, keeping data.
-                    .addMigrations(MIGRATION_2_3)
+                    // v2→v3 (trade tables) and v3→v4 (v1.3 notes/cash batch)
+                    // both migrate in place, keeping data.
+                    .addMigrations(MIGRATION_2_3, MIGRATION_3_4)
                     // Only the pre-multi-item v1 is destructive on upgrade
                     // (confirmed clean-reset choice when v2 shipped).
                     .fallbackToDestructiveMigration()

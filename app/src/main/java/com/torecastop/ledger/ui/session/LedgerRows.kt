@@ -11,7 +11,7 @@ import androidx.compose.foundation.layout.size
 import androidx.compose.foundation.layout.width
 import androidx.compose.foundation.shape.RoundedCornerShape
 import androidx.compose.material.icons.Icons
-import androidx.compose.material.icons.filled.Notes
+import androidx.compose.material.icons.automirrored.filled.Notes
 import androidx.compose.material.icons.filled.SwapHoriz
 import androidx.compose.material3.Card
 import androidx.compose.material3.CardDefaults
@@ -24,7 +24,9 @@ import androidx.compose.ui.Alignment
 import androidx.compose.ui.Modifier
 import androidx.compose.ui.draw.clip
 import androidx.compose.ui.layout.ContentScale
+import androidx.compose.ui.text.font.FontStyle
 import androidx.compose.ui.text.font.FontWeight
+import androidx.compose.ui.text.style.TextOverflow
 import androidx.compose.ui.unit.dp
 import coil.compose.AsyncImage
 import com.torecastop.ledger.data.SaleWithItems
@@ -36,6 +38,9 @@ import java.io.File
  * session (tappable, with the brief "just saved" highlight) and the read-only
  * session history detail (pass a null [onClick]).
  */
+
+/** How many item lines a multi-item sale card shows before collapsing to "+N more". */
+private const val MAX_ITEM_LINES = 5
 
 @Composable
 internal fun SaleRow(
@@ -76,15 +81,28 @@ internal fun SaleRow(
                         style = MaterialTheme.typography.bodySmall,
                         color = MaterialTheme.colorScheme.onSurfaceVariant
                     )
+                    only.note?.let { ItemNoteLine(it) }
                 } else {
                     Text(
                         "${items.size} items",
                         style = MaterialTheme.typography.titleMedium,
                         fontWeight = FontWeight.Bold
                     )
-                    items.forEach { item ->
+                    // Cap the visible lines so a big multi-item sale can't blow
+                    // out one card's height mid-scroll.
+                    items.take(MAX_ITEM_LINES).forEach { item ->
                         Text(
                             "${item.quantity} × ${item.sku} · ${formatCurrency(item.price)}",
+                            style = MaterialTheme.typography.bodySmall,
+                            color = MaterialTheme.colorScheme.onSurfaceVariant,
+                            maxLines = 1,
+                            overflow = TextOverflow.Ellipsis
+                        )
+                        item.note?.let { ItemNoteLine(it) }
+                    }
+                    if (items.size > MAX_ITEM_LINES) {
+                        Text(
+                            "+${items.size - MAX_ITEM_LINES} more",
                             style = MaterialTheme.typography.bodySmall,
                             color = MaterialTheme.colorScheme.onSurfaceVariant
                         )
@@ -95,7 +113,7 @@ internal fun SaleRow(
             Column(horizontalAlignment = Alignment.End) {
                 Text(
                     formatCurrency(saleWithItems.total),
-                    style = MaterialTheme.typography.titleMedium,
+                    style = MaterialTheme.typography.titleMedium.tabularFigures(),
                     fontWeight = FontWeight.Bold
                 )
                 Text(
@@ -115,7 +133,7 @@ internal fun TradeRow(
     highlighted: Boolean = false
 ) {
     val trade = tradeWithItems.trade
-    LedgerCard(onClick = onClick, highlighted = highlighted) {
+    LedgerCard(onClick = onClick, highlighted = highlighted, accent = true) {
         Row(
             modifier = Modifier
                 .fillMaxWidth()
@@ -154,6 +172,7 @@ internal fun TradeRow(
                         style = MaterialTheme.typography.bodySmall,
                         color = MaterialTheme.colorScheme.onSurfaceVariant
                     )
+                    item.note?.let { ItemNoteLine(it) }
                 }
                 tradeWithItems.inItems.forEach { item ->
                     Text(
@@ -161,6 +180,7 @@ internal fun TradeRow(
                         style = MaterialTheme.typography.bodySmall,
                         color = MaterialTheme.colorScheme.onSurfaceVariant
                     )
+                    item.note?.let { ItemNoteLine(it) }
                 }
                 if (trade.cashAmount > 0) {
                     Text(
@@ -175,7 +195,7 @@ internal fun TradeRow(
                 val valueAdded = tradeWithItems.valueAdded
                 Text(
                     formatSignedCurrency(valueAdded),
-                    style = MaterialTheme.typography.titleMedium,
+                    style = MaterialTheme.typography.titleMedium.tabularFigures(),
                     fontWeight = FontWeight.Bold,
                     color = when {
                         valueAdded > 0.0049 -> MaterialTheme.colorScheme.secondary
@@ -202,16 +222,22 @@ internal fun TradeRow(
 private fun LedgerCard(
     onClick: (() -> Unit)?,
     highlighted: Boolean,
+    accent: Boolean = false,
     content: @Composable () -> Unit
 ) {
-    val colors = if (highlighted) {
-        val container by animateColorAsState(
-            MaterialTheme.colorScheme.secondaryContainer,
-            label = "justSavedHighlight"
+    val colors = when {
+        highlighted -> {
+            val container by animateColorAsState(
+                MaterialTheme.colorScheme.secondaryContainer,
+                label = "justSavedHighlight"
+            )
+            CardDefaults.cardColors(containerColor = container)
+        }
+        // Trades get a tonal tint so a mixed feed is scannable at a glance.
+        accent -> CardDefaults.cardColors(
+            containerColor = MaterialTheme.colorScheme.surfaceVariant
         )
-        CardDefaults.cardColors(containerColor = container)
-    } else {
-        CardDefaults.cardColors()
+        else -> CardDefaults.cardColors()
     }
     Card(
         modifier = Modifier
@@ -227,7 +253,7 @@ private fun LedgerCard(
 private fun NoteLine(note: String) {
     Row(verticalAlignment = Alignment.CenterVertically) {
         Icon(
-            Icons.Filled.Notes,
+            Icons.AutoMirrored.Filled.Notes,
             contentDescription = null,
             tint = MaterialTheme.colorScheme.onSurfaceVariant,
             modifier = Modifier.size(14.dp)
@@ -236,7 +262,26 @@ private fun NoteLine(note: String) {
         Text(
             note,
             style = MaterialTheme.typography.bodySmall,
-            color = MaterialTheme.colorScheme.onSurfaceVariant
+            color = MaterialTheme.colorScheme.onSurfaceVariant,
+            maxLines = 2,
+            overflow = TextOverflow.Ellipsis
         )
     }
+}
+
+/**
+ * A per-line item note (serial number / condition), shown indented under the
+ * item line it belongs to — distinct from the sale/trade-level [NoteLine].
+ */
+@Composable
+private fun ItemNoteLine(note: String) {
+    Text(
+        "— $note",
+        style = MaterialTheme.typography.bodySmall,
+        fontStyle = FontStyle.Italic,
+        color = MaterialTheme.colorScheme.onSurfaceVariant,
+        maxLines = 1,
+        overflow = TextOverflow.Ellipsis,
+        modifier = Modifier.padding(start = 8.dp)
+    )
 }

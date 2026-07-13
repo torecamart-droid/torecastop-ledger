@@ -21,6 +21,7 @@ class LedgerRepository(private val db: LedgerDatabase) {
     private val saleItemDao = db.saleItemDao()
     private val tradeDao = db.tradeDao()
     private val tradeItemDao = db.tradeItemDao()
+    private val cashAdjustmentDao = db.cashAdjustmentDao()
 
     // --- Observation (for the UI) ---
 
@@ -38,6 +39,12 @@ class LedgerRepository(private val db: LedgerDatabase) {
 
     fun observeTrades(sessionId: Long): Flow<List<TradeWithItems>> =
         tradeDao.observeTradesForSession(sessionId)
+
+    fun observeCashAdjustments(sessionId: Long): Flow<List<CashAdjustment>> =
+        cashAdjustmentDao.observeForSession(sessionId)
+
+    fun observeCashAdjustmentNet(sessionId: Long): Flow<Double> =
+        cashAdjustmentDao.observeNetForSession(sessionId)
 
     // --- Sessions ---
 
@@ -60,6 +67,37 @@ class LedgerRepository(private val db: LedgerDatabase) {
             session.copy(
                 endTime = System.currentTimeMillis(),
                 status = Session.STATUS_CLOSED
+            )
+        )
+    }
+
+    /** Sets or clears the optional show/event label on a session. (v1.3) */
+    suspend fun setSessionLabel(sessionId: Long, label: String?) {
+        val session = sessionDao.getById(sessionId) ?: return
+        sessionDao.update(session.copy(label = label?.trim()?.ifBlank { null }))
+    }
+
+    /** Records the starting cash float when a session is opened. (v1.3) */
+    suspend fun setStartingFloat(sessionId: Long, startingFloat: Double?) {
+        val session = sessionDao.getById(sessionId) ?: return
+        sessionDao.update(session.copy(startingFloat = startingFloat))
+    }
+
+    /**
+     * Closes a session, recording the end-of-day cash count and optional
+     * drawer photo alongside the close. (v1.3)
+     */
+    suspend fun closeSessionWithCount(
+        session: Session,
+        countedCash: Double?,
+        cashCountPhotoPath: String?
+    ) {
+        sessionDao.update(
+            session.copy(
+                endTime = System.currentTimeMillis(),
+                status = Session.STATUS_CLOSED,
+                countedCash = countedCash,
+                cashCountPhotoPath = cashCountPhotoPath
             )
         )
     }
@@ -153,12 +191,43 @@ class LedgerRepository(private val db: LedgerDatabase) {
     suspend fun getTradesForExport(sessionId: Long): List<TradeWithItems> =
         tradeDao.getTradesForSession(sessionId)
 
-    /** One-shot end-of-day numbers for any session (pre-export review, history). */
-    suspend fun summarizeSession(sessionId: Long): SessionSummary =
-        SessionSummary.from(
-            saleDao.getSalesForSession(sessionId),
-            tradeDao.getTradesForSession(sessionId)
+    // --- Cash adjustments (paid-out / cash-in log) ---
+
+    /**
+     * Records a cash movement that isn't a sale or trade. [amount] is signed
+     * from the drawer's side (positive = added, negative = paid out). (v1.3)
+     */
+    suspend fun addCashAdjustment(sessionId: Long, amount: Double, reason: String): Long =
+        cashAdjustmentDao.insert(
+            CashAdjustment(
+                sessionId = sessionId,
+                amount = amount,
+                reason = reason.trim(),
+                timestamp = System.currentTimeMillis()
+            )
         )
+
+    suspend fun deleteCashAdjustmentById(id: Long) = cashAdjustmentDao.deleteById(id)
+
+    /** Chronological cash adjustments for a session (reconciliation, export). */
+    suspend fun getCashAdjustmentsForExport(sessionId: Long): List<CashAdjustment> =
+        cashAdjustmentDao.getForSession(sessionId)
+
+    /** Loads one session by id (for reconciliation context in summaries). */
+    suspend fun getSession(sessionId: Long): Session? = sessionDao.getById(sessionId)
+
+    /** One-shot end-of-day numbers for any session (pre-export review, history). */
+    suspend fun summarizeSession(sessionId: Long): SessionSummary {
+        val session = sessionDao.getById(sessionId)
+        val adjustments = cashAdjustmentDao.getForSession(sessionId)
+        return SessionSummary.from(
+            saleDao.getSalesForSession(sessionId),
+            tradeDao.getTradesForSession(sessionId),
+            startingFloat = session?.startingFloat,
+            countedCash = session?.countedCash,
+            cashAdjustmentsNet = adjustments.sumOf { it.amount }
+        )
+    }
 
     companion object {
         private val dateFormat = SimpleDateFormat("dd MMM yyyy", Locale.getDefault())

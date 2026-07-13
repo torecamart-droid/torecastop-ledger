@@ -9,7 +9,9 @@ import com.torecastop.ledger.data.SaleItem
 data class DraftItem(
     val sku: String = "",
     val quantity: Int = 1,
-    val priceText: String = ""
+    val priceText: String = "",
+    /** Optional per-line note — serial number, condition, etc. (v1.3) */
+    val note: String = ""
 ) {
     val price: Double? get() = priceText.toDoubleOrNull()
 
@@ -19,14 +21,20 @@ data class DraftItem(
     val subtotal: Double get() = (price ?: 0.0) * quantity
 
     fun toSaleItem(): SaleItem =
-        SaleItem(sku = sku.trim(), quantity = quantity, price = price ?: 0.0)
+        SaleItem(
+            sku = sku.trim(),
+            quantity = quantity,
+            price = price ?: 0.0,
+            note = note.trim().ifBlank { null }
+        )
 
     companion object {
         fun from(item: SaleItem): DraftItem =
             DraftItem(
                 sku = item.sku,
                 quantity = item.quantity,
-                priceText = String.format(java.util.Locale.US, "%.2f", item.price)
+                priceText = String.format(java.util.Locale.US, "%.2f", item.price),
+                note = item.note ?: ""
             )
     }
 }

@@ -40,6 +40,20 @@ fun ExportSummaryDialog(
                     SummaryRow("Value added", formatSignedCurrency(summary.tradeValueAdded), bold = true)
                     SummaryRow("Cash in trades", formatSignedCurrency(summary.tradeCash))
                 }
+                if (summary.hasReconciliation) {
+                    HorizontalDivider(modifier = Modifier.padding(vertical = 8.dp))
+                    SummaryRow("Starting float", formatCurrency(summary.startingFloat ?: 0.0))
+                    if (summary.cashAdjustmentsNet != 0.0) {
+                        SummaryRow("Cash adjustments", formatSignedCurrency(summary.cashAdjustmentsNet))
+                    }
+                    SummaryRow("Expected cash", formatCurrency(summary.expectedCash), bold = true)
+                    summary.countedCash?.let { counted ->
+                        SummaryRow("Counted", formatCurrency(counted))
+                        summary.cashVariance?.let { v ->
+                            SummaryRow("Variance", formatSignedCurrency(v))
+                        }
+                    }
+                }
                 if (summary.firstTimestamp != null && summary.lastTimestamp != null) {
                     HorizontalDivider(modifier = Modifier.padding(vertical = 8.dp))
                     SummaryRow(

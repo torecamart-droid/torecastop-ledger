@@ -17,7 +17,9 @@ data class DraftTradeItem(
     val cardName: String = "",
     val quantity: Int = 1,
     val valueText: String = "",
-    val costText: String = ""
+    val costText: String = "",
+    /** Optional per-line note — serial number, condition, etc. (v1.3) */
+    val note: String = ""
 ) {
     val value: Double? get() = valueText.toDoubleOrNull()
     val costBasis: Double? get() = costText.toDoubleOrNull()
@@ -44,7 +46,8 @@ data class DraftTradeItem(
             cardName = cardName.trim().ifBlank { null },
             quantity = quantity,
             tradeValue = value ?: 0.0,
-            costBasis = if (direction == TradeItem.DIRECTION_OUT) costBasis else null
+            costBasis = if (direction == TradeItem.DIRECTION_OUT) costBasis else null,
+            note = note.trim().ifBlank { null }
         )
 
     companion object {
@@ -55,7 +58,8 @@ data class DraftTradeItem(
                 cardName = item.cardName ?: "",
                 quantity = item.quantity,
                 valueText = String.format(Locale.US, "%.2f", item.tradeValue),
-                costText = item.costBasis?.let { String.format(Locale.US, "%.2f", it) } ?: ""
+                costText = item.costBasis?.let { String.format(Locale.US, "%.2f", it) } ?: "",
+                note = item.note ?: ""
             )
     }
 }

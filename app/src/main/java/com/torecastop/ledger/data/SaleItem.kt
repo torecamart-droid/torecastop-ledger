@@ -29,7 +29,12 @@ data class SaleItem(
     val sku: String,
     val quantity: Int = 1,
     /** Per-unit price in dollars. */
-    val price: Double
+    val price: Double,
+    /**
+     * Optional per-line note — e.g. a serial number or condition detail for a
+     * specific card. Distinct from the sale-level [Sale.note]. (v1.3)
+     */
+    val note: String? = null
 ) {
     /** Line total = quantity × unit price. Not stored; computed on read. */
     @get:Ignore

@@ -149,5 +149,12 @@ private fun ItemEditor(
                 modifier = Modifier.weight(1f)
             )
         }
+        OutlinedTextField(
+            value = item.note,
+            onValueChange = { onChange(item.copy(note = it)) },
+            label = { Text("Item note (optional)") },
+            singleLine = true,
+            modifier = Modifier.fillMaxWidth()
+        )
     }
 }

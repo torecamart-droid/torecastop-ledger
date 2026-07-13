@@ -67,10 +67,12 @@ fun SaleEntryScreen(
     var sku by remember { mutableStateOf("") }
     var quantity by remember { mutableStateOf(1) }
     var priceText by remember { mutableStateOf("") }
+    var itemNote by remember { mutableStateOf("") }
     var note by remember { mutableStateOf("") }
     var photoPath by remember { mutableStateOf<String?>(null) }
     var showScanner by remember { mutableStateOf(false) }
     var scannedSku by remember { mutableStateOf<String?>(null) }
+    var confirmHighValue by remember { mutableStateOf(false) }
 
     val skuFocusRequester = remember { FocusRequester() }
     val priceFocusRequester = remember { FocusRequester() }
@@ -101,12 +103,14 @@ fun SaleEntryScreen(
         }
     }
 
-    fun currentDraft() = DraftItem(sku = sku, quantity = quantity, priceText = priceText)
+    fun currentDraft() =
+        DraftItem(sku = sku, quantity = quantity, priceText = priceText, note = itemNote)
 
     fun clearItemFields() {
         sku = ""
         quantity = 1
         priceText = ""
+        itemNote = ""
     }
 
     fun addCurrentToCart(): Boolean {
@@ -117,7 +121,7 @@ fun SaleEntryScreen(
         return true
     }
 
-    fun saveSale() {
+    fun commitSale() {
         val draft = currentDraft()
         val items = if (draft.isValid) cart + draft else cart.toList()
         if (items.isEmpty()) return
@@ -128,6 +132,21 @@ fun SaleEntryScreen(
     val canSave = cart.isNotEmpty() || canAddItem
     val cartTotal = cart.sumOf { it.subtotal } + (if (canAddItem) currentDraft().subtotal else 0.0)
     val itemCount = cart.size + if (canAddItem) 1 else 0
+
+    // A large total asks for confirmation before saving (typo guard); small
+    // everyday sales save straight through.
+    fun attemptSave() {
+        if (!canSave) return
+        if (cartTotal >= HIGH_VALUE_CONFIRM_THRESHOLD) confirmHighValue = true else commitSale()
+    }
+
+    if (confirmHighValue) {
+        HighValueConfirmDialog(
+            amount = cartTotal,
+            onConfirm = { confirmHighValue = false; commitSale() },
+            onDismiss = { confirmHighValue = false }
+        )
+    }
 
     Scaffold(
         topBar = {
@@ -143,7 +162,7 @@ fun SaleEntryScreen(
         bottomBar = {
             Surface(shadowElevation = 8.dp) {
                 Button(
-                    onClick = { saveSale() },
+                    onClick = { attemptSave() },
                     enabled = canSave,
                     modifier = Modifier
                         .fillMaxWidth()
@@ -183,6 +202,16 @@ fun SaleEntryScreen(
                 modifier = Modifier
                     .fillMaxWidth()
                     .focusRequester(skuFocusRequester)
+            )
+
+            Spacer(modifier = Modifier.height(12.dp))
+
+            OutlinedTextField(
+                value = itemNote,
+                onValueChange = { itemNote = it },
+                label = { Text("Item note — serial no. / condition (optional)") },
+                singleLine = true,
+                modifier = Modifier.fillMaxWidth()
             )
 
             Spacer(modifier = Modifier.height(12.dp))
@@ -256,7 +285,14 @@ fun SaleEntryScreen(
                                     style = MaterialTheme.typography.bodySmall,
                                     color = MaterialTheme.colorScheme.onSurfaceVariant
                                 )
-                            }
+                                if (item.note.isNotBlank()) {
+                                    Text(
+                                        item.note,
+                                        style = MaterialTheme.typography.bodySmall,
+                                        color = MaterialTheme.colorScheme.onSurfaceVariant
+                                    )
+                                }
+}
                             Text(
                                 formatCurrency(item.subtotal),
                                 style = MaterialTheme.typography.bodyLarge

@@ -2,8 +2,8 @@ package com.torecastop.ledger.ui.session
 
 import android.content.Intent
 import android.net.Uri
+import androidx.compose.foundation.clickable
 import androidx.compose.foundation.layout.Arrangement
-import androidx.compose.foundation.layout.Box
 import androidx.compose.foundation.layout.Column
 import androidx.compose.foundation.layout.PaddingValues
 import androidx.compose.foundation.layout.Row
@@ -19,12 +19,12 @@ import androidx.compose.foundation.lazy.LazyColumn
 import androidx.compose.foundation.lazy.items
 import androidx.compose.material.icons.Icons
 import androidx.compose.material.icons.filled.Add
+import androidx.compose.material.icons.filled.Close
 import androidx.compose.material.icons.filled.MoreVert
 import androidx.compose.material.icons.filled.PointOfSale
 import androidx.compose.material.icons.filled.Remove
 import androidx.compose.material.icons.filled.Storefront
 import androidx.compose.material.icons.filled.SwapHoriz
-import androidx.compose.material3.AlertDialog
 import androidx.compose.material3.Button
 import androidx.compose.material3.Card
 import androidx.compose.material3.CardDefaults
@@ -63,6 +63,7 @@ import com.torecastop.ledger.data.SaleWithItems
 import com.torecastop.ledger.data.Session
 import com.torecastop.ledger.data.SessionSummary
 import com.torecastop.ledger.data.TradeWithItems
+import com.torecastop.ledger.update.UpdateInfo
 import kotlinx.coroutines.launch
 
 /** Which full-screen panel is showing. The ledger is home. */
@@ -93,6 +94,9 @@ fun ActiveSessionScreen(viewModel: ActiveSessionViewModel) {
     val total by viewModel.total.collectAsStateWithLifecycle()
     val allSessions by viewModel.allSessions.collectAsStateWithLifecycle()
     val highlightKey by viewModel.highlightKey.collectAsStateWithLifecycle()
+    val cashAdjustments by viewModel.cashAdjustments.collectAsStateWithLifecycle()
+    val cashAdjustmentNet by viewModel.cashAdjustmentNet.collectAsStateWithLifecycle()
+    val updateAvailable by viewModel.updateAvailable.collectAsStateWithLifecycle()
     val context = LocalContext.current
     val scope = rememberCoroutineScope()
     val snackbarHostState = remember { SnackbarHostState() }
@@ -101,6 +105,9 @@ fun ActiveSessionScreen(viewModel: ActiveSessionViewModel) {
     var editingSale by remember { mutableStateOf<SaleWithItems?>(null) }
     var menuOpen by remember { mutableStateOf(false) }
     var confirmClose by remember { mutableStateOf(false) }
+    var editingLabel by remember { mutableStateOf(false) }
+    var editingFloat by remember { mutableStateOf(false) }
+    var loggingCash by remember { mutableStateOf(false) }
     var exportRequest by remember { mutableStateOf<ExportRequest?>(null) }
 
     // "Saved — Undo" snackbars for every sale/trade save.
@@ -124,7 +131,7 @@ fun ActiveSessionScreen(viewModel: ActiveSessionViewModel) {
     // Pre-export review, shown over whichever panel requested it.
     exportRequest?.let { request ->
         ExportSummaryDialog(
-            sessionName = request.session.name,
+            sessionName = request.session.label ?: request.session.name,
             summary = request.summary,
             onConfirm = {
                 exportRequest = null
@@ -198,18 +205,47 @@ fun ActiveSessionScreen(viewModel: ActiveSessionViewModel) {
     }
 
     if (confirmClose) {
-        AlertDialog(
-            onDismissRequest = { confirmClose = false },
-            title = { Text("Close this session?") },
-            text = { Text("The session is locked once closed. You can still export it from Session history, then start a new one.") },
-            confirmButton = {
-                TextButton(onClick = { confirmClose = false; viewModel.closeSession() }) {
-                    Text("Close session")
-                }
+        session?.let { current ->
+            CloseSessionDialog(
+                startingFloat = current.startingFloat,
+                cashSales = total,
+                tradeCash = trades.sumOf { it.cashReceived },
+                adjustmentsNet = cashAdjustmentNet,
+                onClose = { counted, photo ->
+                    confirmClose = false
+                    viewModel.closeSessionWithCount(counted, photo)
+                },
+                onDismiss = { confirmClose = false }
+            )
+        }
+    }
+
+    if (editingLabel) {
+        session?.let { current ->
+            SessionLabelDialog(
+                current = current.label,
+                onSave = { viewModel.setSessionLabel(it); editingLabel = false },
+                onDismiss = { editingLabel = false }
+            )
+        }
+    }
+
+    if (editingFloat) {
+        session?.let { current ->
+            StartingFloatDialog(
+                current = current.startingFloat,
+                onSave = { viewModel.setStartingFloat(it); editingFloat = false },
+                onDismiss = { editingFloat = false }
+            )
+        }
+    }
+
+    if (loggingCash) {
+        CashAdjustmentDialog(
+            onAdd = { amount, reason ->
+                viewModel.addCashAdjustment(amount, reason); loggingCash = false
             },
-            dismissButton = {
-                TextButton(onClick = { confirmClose = false }) { Text("Cancel") }
-            }
+            onDismiss = { loggingCash = false }
         )
     }
 
@@ -217,7 +253,21 @@ fun ActiveSessionScreen(viewModel: ActiveSessionViewModel) {
         snackbarHost = { SnackbarHost(snackbarHostState) },
         topBar = {
             TopAppBar(
-                title = { Text(session?.name ?: "TorecaStop Ledger") },
+                title = {
+                    val label = session?.label
+                    Column {
+                        Text(label ?: session?.name ?: "TorecaStop Ledger")
+                        if (label != null) {
+                            session?.name?.let {
+                                Text(
+                                    it,
+                                    style = MaterialTheme.typography.bodySmall,
+                                    color = MaterialTheme.colorScheme.onSurfaceVariant
+                                )
+                            }
+                        }
+                    }
+                },
                 actions = {
                     IconButton(onClick = { menuOpen = true }) {
                         Icon(Icons.Filled.MoreVert, contentDescription = "More options")
@@ -239,6 +289,20 @@ fun ActiveSessionScreen(viewModel: ActiveSessionViewModel) {
                                         }
                                     }
                                 }
+                            )
+                        }
+                        session?.let {
+                            DropdownMenuItem(
+                                text = { Text("Set show name…") },
+                                onClick = { menuOpen = false; editingLabel = true }
+                            )
+                            DropdownMenuItem(
+                                text = { Text("Set starting float…") },
+                                onClick = { menuOpen = false; editingFloat = true }
+                            )
+                            DropdownMenuItem(
+                                text = { Text("Log cash in / out…") },
+                                onClick = { menuOpen = false; loggingCash = true }
                             )
                         }
                         DropdownMenuItem(
@@ -304,12 +368,28 @@ fun ActiveSessionScreen(viewModel: ActiveSessionViewModel) {
                     .fillMaxSize()
                     .padding(padding)
             ) {
+                updateAvailable?.let { info ->
+                    UpdateBanner(
+                        info = info,
+                        onUpdate = { openUrl(context, info.url) },
+                        onDismiss = { viewModel.dismissUpdate() }
+                    )
+                }
                 SessionTotalsHeader(
                     saleCount = sales.size,
                     itemCount = itemCount,
                     total = total,
                     trades = trades
                 )
+                if (cashAdjustments.isNotEmpty()) {
+                    CashAdjustmentsCard(
+                        adjustments = cashAdjustments,
+                        onDelete = { viewModel.deleteCashAdjustment(it.id) },
+                        modifier = Modifier
+                            .padding(horizontal = 16.dp)
+                            .padding(bottom = 8.dp)
+                    )
+                }
                 val entries = remember(sales, trades) { LedgerEntry.merge(sales, trades) }
                 if (entries.isEmpty()) {
                     EmptyLedger(modifier = Modifier.weight(1f))
@@ -380,13 +460,30 @@ private fun NoActiveSession(onStart: () -> Unit, modifier: Modifier = Modifier) 
 
 @Composable
 private fun EmptyLedger(modifier: Modifier = Modifier) {
-    Box(modifier = modifier.fillMaxWidth(), contentAlignment = Alignment.Center) {
+    Column(
+        modifier = modifier
+            .fillMaxWidth()
+            .padding(32.dp),
+        horizontalAlignment = Alignment.CenterHorizontally,
+        verticalArrangement = Arrangement.Center
+    ) {
+        Icon(
+            Icons.Filled.PointOfSale,
+            contentDescription = null,
+            tint = MaterialTheme.colorScheme.onSurfaceVariant,
+            modifier = Modifier.size(48.dp)
+        )
         Text(
-            "Nothing recorded yet.\nUse the buttons below — scan a card to start the first sale.",
-            style = MaterialTheme.typography.bodyLarge,
+            "Nothing recorded yet",
+            style = MaterialTheme.typography.titleMedium,
+            modifier = Modifier.padding(top = 12.dp)
+        )
+        Text(
+            "Use the buttons below — scan a card to start the first sale.",
+            style = MaterialTheme.typography.bodyMedium,
             textAlign = TextAlign.Center,
             color = MaterialTheme.colorScheme.onSurfaceVariant,
-            modifier = Modifier.padding(32.dp)
+            modifier = Modifier.padding(top = 4.dp)
         )
     }
 }
@@ -426,7 +523,7 @@ private fun SessionTotalsHeader(
                     )
                     Text(
                         formatCurrency(total),
-                        style = MaterialTheme.typography.displaySmall,
+                        style = MaterialTheme.typography.displaySmall.tabularFigures(),
                         fontWeight = FontWeight.Bold,
                         color = MaterialTheme.colorScheme.primary
                     )
@@ -484,9 +581,14 @@ private fun SessionTotalsHeader(
     }
 }
 
-/** Quantity stepper shared by the entry forms and the edit dialog. */
+/**
+ * Quantity stepper shared by the entry forms and the edit dialog. Tap the
+ * number itself to type a value directly — faster than many +/- taps for a
+ * bulk sale. (v1.3)
+ */
 @Composable
 internal fun QuantityStepper(quantity: Int, onChange: (Int) -> Unit) {
+    var editing by remember { mutableStateOf(false) }
     Row(verticalAlignment = Alignment.CenterVertically) {
         Text("Qty", style = MaterialTheme.typography.labelLarge)
         IconButton(onClick = { if (quantity > 1) onChange(quantity - 1) }) {
@@ -495,12 +597,21 @@ internal fun QuantityStepper(quantity: Int, onChange: (Int) -> Unit) {
         Text(
             quantity.toString(),
             style = MaterialTheme.typography.titleLarge,
-            modifier = Modifier.width(28.dp),
-            textAlign = TextAlign.Center
+            textAlign = TextAlign.Center,
+            modifier = Modifier
+                .width(40.dp)
+                .clickable { editing = true }
         )
         IconButton(onClick = { onChange(quantity + 1) }) {
             Icon(Icons.Filled.Add, contentDescription = "Increase quantity")
         }
+    }
+    if (editing) {
+        QuantityEntryDialog(
+            current = quantity,
+            onSet = { onChange(it); editing = false },
+            onDismiss = { editing = false }
+        )
     }
 }
 
@@ -511,4 +622,36 @@ private fun shareExport(context: android.content.Context, uri: Uri) {
         addFlags(Intent.FLAG_GRANT_READ_URI_PERMISSION)
     }
     context.startActivity(Intent.createChooser(intent, "Export session"))
+}
+
+/** Dismissible "newer build available" bar; opens the download in a browser. */
+@Composable
+private fun UpdateBanner(
+    info: UpdateInfo,
+    onUpdate: () -> Unit,
+    onDismiss: () -> Unit
+) {
+    Surface(color = MaterialTheme.colorScheme.tertiaryContainer) {
+        Row(
+            modifier = Modifier
+                .fillMaxWidth()
+                .padding(start = 16.dp, end = 8.dp, top = 4.dp, bottom = 4.dp),
+            verticalAlignment = Alignment.CenterVertically
+        ) {
+            Text(
+                "Update available — v${info.versionName}",
+                style = MaterialTheme.typography.bodyMedium,
+                color = MaterialTheme.colorScheme.onTertiaryContainer,
+                modifier = Modifier.weight(1f)
+            )
+            TextButton(onClick = onUpdate) { Text("Update") }
+            IconButton(onClick = onDismiss) {
+                Icon(Icons.Filled.Close, contentDescription = "Dismiss update")
+            }
+        }
+    }
+}
+
+private fun openUrl(context: android.content.Context, url: String) {
+    runCatching { context.startActivity(Intent(Intent.ACTION_VIEW, Uri.parse(url))) }
 }

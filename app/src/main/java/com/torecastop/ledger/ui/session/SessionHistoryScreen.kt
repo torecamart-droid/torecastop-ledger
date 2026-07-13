@@ -99,10 +99,17 @@ fun SessionHistoryScreen(
                 ) {
                     Column(modifier = Modifier.padding(16.dp)) {
                         Text(
-                            session.name,
+                            session.label ?: session.name,
                             style = MaterialTheme.typography.titleMedium,
                             fontWeight = FontWeight.Bold
                         )
+                        if (session.label != null) {
+                            Text(
+                                session.name,
+                                style = MaterialTheme.typography.bodySmall,
+                                color = MaterialTheme.colorScheme.onSurfaceVariant
+                            )
+                        }
                         Text(
                             buildString {
                                 append("Opened ")
@@ -143,7 +150,7 @@ fun SessionDetailScreen(
     Scaffold(
         topBar = {
             TopAppBar(
-                title = { Text(session.name) },
+                title = { Text(session.label ?: session.name) },
                 navigationIcon = {
                     IconButton(onClick = onBack) {
                         Icon(Icons.AutoMirrored.Filled.ArrowBack, contentDescription = "Back")
@@ -195,6 +202,27 @@ fun SessionDetailScreen(
                             "Cash in trades",
                             formatSignedCurrency(loaded.summary.tradeCash)
                         )
+                    }
+                    if (loaded.summary.hasReconciliation) {
+                        HorizontalDivider(modifier = Modifier.padding(vertical = 12.dp))
+                        SummaryLine(
+                            "Starting float",
+                            formatCurrency(loaded.summary.startingFloat ?: 0.0)
+                        )
+                        loaded.cashAdjustments.forEach { adj ->
+                            SummaryLine("• ${adj.reason}", formatSignedCurrency(adj.amount))
+                        }
+                        SummaryLine(
+                            "Expected cash",
+                            formatCurrency(loaded.summary.expectedCash),
+                            bold = true
+                        )
+                        loaded.summary.countedCash?.let { counted ->
+                            SummaryLine("Counted", formatCurrency(counted))
+                            loaded.summary.cashVariance?.let { v ->
+                                SummaryLine("Variance", formatSignedCurrency(v))
+                            }
+                        }
                     }
                     HorizontalDivider(modifier = Modifier.padding(vertical = 12.dp))
                 }

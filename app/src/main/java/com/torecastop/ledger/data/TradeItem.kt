@@ -42,7 +42,12 @@ data class TradeItem(
     /** Per-unit value the card is counted as in the deal, in dollars. */
     val tradeValue: Double,
     /** Per-unit cost to the store, in dollars. Optional, OUT lines only. */
-    val costBasis: Double? = null
+    val costBasis: Double? = null,
+    /**
+     * Optional per-line note — e.g. a serial number or condition detail for a
+     * specific card. Distinct from the trade-level [Trade.note]. (v1.3)
+     */
+    val note: String? = null
 ) {
     /** Line total = quantity × per-unit trade value. Not stored; computed on read. */
     @get:Ignore
