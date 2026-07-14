@@ -21,13 +21,26 @@ private val LightColors = lightColorScheme(
     surfaceVariant = Mist,
     onPrimary = Cloud,
     onBackground = Ink,
-    onSurface = Ink
+    onSurface = Ink,
+    error = ErrorRed,
+    onError = Cloud
 )
 
+// Dark mode keeps the full brand identity (warm Ink surfaces, Coral/Teal/Bronze
+// accents) rather than accepting Material's generic dark defaults. (v1.3)
 private val DarkColors = darkColorScheme(
     primary = Coral,
     secondary = Teal,
-    tertiary = Bronze
+    tertiary = Bronze,
+    background = InkBackground,
+    surface = InkSurface,
+    surfaceVariant = InkSurfaceVariant,
+    onPrimary = Ink,
+    onBackground = CloudDim,
+    onSurface = CloudDim,
+    onSurfaceVariant = CloudMuted,
+    error = ErrorRedLight,
+    onError = Ink
 )
 
 @Composable

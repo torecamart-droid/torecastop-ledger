@@ -6,6 +6,14 @@
     <uses-permission android:name="android.permission.CAMERA" />
     <uses-feature android:name="android.hardware.camera.any" android:required="false" />
 
+    <!-- Haptic confirmation on a successful barcode scan. -->
+    <uses-permission android:name="android.permission.VIBRATE" />
+
+    <!-- Optional, network-optional: the in-app update check (v1.3) polls a
+         release manifest on start. The app stays fully offline-first — the
+         check silently no-ops without a connection. -->
+    <uses-permission android:name="android.permission.INTERNET" />
+
     <!-- Android 11+ package visibility: allow resolving a camera app for photo capture. -->
     <queries>
         <intent>

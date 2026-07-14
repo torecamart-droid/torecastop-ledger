@@ -30,8 +30,8 @@ object PhotoStorage {
         File(context.filesDir, "photos").apply { mkdirs() }
 
     /** A fresh, uniquely named jpg target for the camera to write into. */
-    fun newPhotoFile(context: Context): File =
-        File(photosDir(context), "sale_${System.currentTimeMillis()}.jpg")
+    fun newPhotoFile(context: Context, prefix: String = "sale"): File =
+        File(photosDir(context), "${prefix}_${System.currentTimeMillis()}.jpg")
 
     /** FileProvider content Uri the camera app can write to. */
     fun uriFor(context: Context, file: File): Uri =
