@@ -366,6 +366,22 @@ hosted link/QR (e.g. GitHub Releases) adds versioning and a proper installer
 flow. An **App Bundle (`.aab`)** is Play-Store-only — for file sharing, always
 distribute an APK.
 
+### Publishing an update (in-app update check)
+The app checks for a newer build on launch by reading `update-manifest.json`
+from this repo's `main` branch (raw URL, no auth — requires the repo to be
+**public**). `UpdateChecker.MANIFEST_URL` points at it. When the manifest's
+`versionCode` is higher than the installed build, a dismissible "Update
+available" banner opens the `url` in the browser.
+
+Each release, in the **same commit** that bumps `versionCode`/`versionName`:
+1. Update `update-manifest.json` to the new `versionCode`, `versionName`, and
+   the download `url` (a GitHub Release page, or any hosted APK link).
+2. Publish the APK where `url` points (e.g. attach it to a GitHub Release).
+
+The check is network-optional and fails safe: offline, a private repo, a 404,
+or malformed JSON all resolve to "no update" and never block recording a sale.
+To disable the feature, set `MANIFEST_URL` back to `""`.
+
 ### Debug builds
 `./gradlew :app:assembleDebug` still works for development
 (`app/build/outputs/apk/debug/app-debug.apk`), but it's signed with the

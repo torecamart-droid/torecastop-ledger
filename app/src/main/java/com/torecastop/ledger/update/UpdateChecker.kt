@@ -32,8 +32,10 @@ data class UpdateInfo(
  */
 object UpdateChecker {
 
-    // TODO(team): point this at the release manifest to enable update checks.
-    private const val MANIFEST_URL = ""
+    // The release manifest, served straight from the (public) repo's main
+    // branch. Bump update-manifest.json on each release — see README.
+    private const val MANIFEST_URL =
+        "https://raw.githubusercontent.com/torecamart-droid/torecastop-ledger/main/update-manifest.json"
 
     private const val TIMEOUT_MS = 5_000
 
