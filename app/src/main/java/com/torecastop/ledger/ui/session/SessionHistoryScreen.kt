@@ -193,11 +193,8 @@ fun SessionDetailScreen(
                     SummaryLine("Cash total", formatCurrency(loaded.summary.cashTotal), bold = true)
                     if (loaded.summary.tradeCount > 0) {
                         SummaryLine("Trades", loaded.summary.tradeCount.toString())
-                        SummaryLine(
-                            "Value added",
-                            formatSignedCurrency(loaded.summary.tradeValueAdded),
-                            bold = true
-                        )
+                        SummaryLine("Out total", formatCurrency(loaded.summary.tradeOutTotal))
+                        SummaryLine("In total", formatCurrency(loaded.summary.tradeInTotal))
                         SummaryLine(
                             "Cash in trades",
                             formatSignedCurrency(loaded.summary.tradeCash)

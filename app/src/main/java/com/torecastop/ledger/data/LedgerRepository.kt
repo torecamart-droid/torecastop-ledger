@@ -22,6 +22,8 @@ class LedgerRepository(private val db: LedgerDatabase) {
     private val tradeDao = db.tradeDao()
     private val tradeItemDao = db.tradeItemDao()
     private val cashAdjustmentDao = db.cashAdjustmentDao()
+    private val salePhotoDao = db.salePhotoDao()
+    private val tradePhotoDao = db.tradePhotoDao()
 
     // --- Observation (for the UI) ---
 
@@ -105,35 +107,67 @@ class LedgerRepository(private val db: LedgerDatabase) {
     // --- Sales ---
 
     /**
-     * Records a sale and its item lines atomically, stamping the current time.
-     * [items] carry sku/quantity/price; their saleId is filled in here.
+     * Records a sale, its item lines, and their photos atomically, stamping
+     * the current time. [items] carry sku/quantity/price; their saleId is
+     * filled in here. [itemPhotoPaths] is parallel to [items] — each item's
+     * own photos, attached once its generated id is known. [salePhotoPaths]
+     * cover the sale as a whole. [cashReceived] is the cash physically handed
+     * over, if recorded — change due is derived from it, not stored
+     * separately. (v1.3)
      */
     suspend fun addSale(
         sessionId: Long,
         items: List<SaleItem>,
+        itemPhotoPaths: List<List<String>> = emptyList(),
         note: String?,
-        photoPath: String?
+        salePhotoPaths: List<String> = emptyList(),
+        cashReceived: Double? = null
     ): Long = db.withTransaction {
         val saleId = saleDao.insert(
             Sale(
                 sessionId = sessionId,
                 note = note?.ifBlank { null },
-                photoPath = photoPath,
-                timestamp = System.currentTimeMillis()
+                timestamp = System.currentTimeMillis(),
+                cashReceived = cashReceived
             )
         )
-        saleItemDao.insertAll(items.map { it.copy(id = 0, saleId = saleId) })
+        val itemIds = saleItemDao.insertAll(items.map { it.copy(id = 0, saleId = saleId) })
+        insertSalePhotos(saleId, itemIds, itemPhotoPaths, salePhotoPaths)
         saleId
     }
 
     /**
-     * Updates an existing sale's note/photo and replaces its item lines
-     * (inline editing while the session is active).
+     * Updates an existing sale's note/cash/items and replaces its photos
+     * (inline editing while the session is active) — same replace-on-edit
+     * shape as the items themselves.
      */
-    suspend fun updateSale(sale: Sale, items: List<SaleItem>) = db.withTransaction {
+    suspend fun updateSale(
+        sale: Sale,
+        items: List<SaleItem>,
+        itemPhotoPaths: List<List<String>> = emptyList(),
+        salePhotoPaths: List<String> = emptyList()
+    ) = db.withTransaction {
         saleDao.update(sale.copy(note = sale.note?.ifBlank { null }))
-        saleItemDao.deleteForSale(sale.id)
-        saleItemDao.insertAll(items.map { it.copy(id = 0, saleId = sale.id) })
+        saleItemDao.deleteForSale(sale.id) // cascades away the old sale_photos too
+        val itemIds = saleItemDao.insertAll(items.map { it.copy(id = 0, saleId = sale.id) })
+        insertSalePhotos(sale.id, itemIds, itemPhotoPaths, salePhotoPaths)
+    }
+
+    private suspend fun insertSalePhotos(
+        saleId: Long,
+        itemIds: List<Long>,
+        itemPhotoPaths: List<List<String>>,
+        salePhotoPaths: List<String>
+    ) {
+        val now = System.currentTimeMillis()
+        val photos = itemIds.zip(itemPhotoPaths).flatMap { (itemId, paths) ->
+            paths.map { path ->
+                SalePhoto(saleId = saleId, saleItemId = itemId, photoPath = path, timestamp = now)
+            }
+        } + salePhotoPaths.map { path ->
+            SalePhoto(saleId = saleId, saleItemId = null, photoPath = path, timestamp = now)
+        }
+        if (photos.isNotEmpty()) salePhotoDao.insertAll(photos)
     }
 
     suspend fun deleteSale(sale: Sale) = saleDao.delete(sale)
@@ -148,40 +182,71 @@ class LedgerRepository(private val db: LedgerDatabase) {
     // --- Trades ---
 
     /**
-     * Records a trade and its OUT/IN item lines atomically, stamping the
-     * current time. [items] carry direction/sku/name/qty/values; their tradeId
-     * is filled in here.
+     * Records a trade, its OUT/IN item lines, and their photos atomically,
+     * stamping the current time. [items] carry direction/sku/name/qty/values;
+     * their tradeId is filled in here. [itemPhotoPaths] is parallel to
+     * [items] — each card's own photos, attached once its generated id is
+     * known. [tradePhotoPaths] cover the trade as a whole. (v1.3)
      */
     suspend fun addTrade(
         sessionId: Long,
         items: List<TradeItem>,
+        itemPhotoPaths: List<List<String>> = emptyList(),
         cashAmount: Double,
         cashDirection: String,
         note: String?,
-        photoPath: String?
+        tradePhotoPaths: List<String> = emptyList(),
+        customerPhone: String? = null,
+        customerEmail: String? = null
     ): Long = db.withTransaction {
         val tradeId = tradeDao.insert(
             Trade(
                 sessionId = sessionId,
                 note = note?.ifBlank { null },
-                photoPath = photoPath,
                 timestamp = System.currentTimeMillis(),
                 cashAmount = cashAmount,
-                cashDirection = cashDirection
+                cashDirection = cashDirection,
+                customerPhone = customerPhone?.ifBlank { null },
+                customerEmail = customerEmail?.ifBlank { null }
             )
         )
-        tradeItemDao.insertAll(items.map { it.copy(id = 0, tradeId = tradeId) })
+        val itemIds = tradeItemDao.insertAll(items.map { it.copy(id = 0, tradeId = tradeId) })
+        insertTradePhotos(tradeId, itemIds, itemPhotoPaths, tradePhotoPaths)
         tradeId
     }
 
     /**
-     * Updates an existing trade's header (note/photo/cash) and replaces its
-     * item lines (inline editing while the session is active).
+     * Updates an existing trade's header/items and replaces its photos
+     * (inline editing while the session is active) — same replace-on-edit
+     * shape as the items themselves.
      */
-    suspend fun updateTrade(trade: Trade, items: List<TradeItem>) = db.withTransaction {
+    suspend fun updateTrade(
+        trade: Trade,
+        items: List<TradeItem>,
+        itemPhotoPaths: List<List<String>> = emptyList(),
+        tradePhotoPaths: List<String> = emptyList()
+    ) = db.withTransaction {
         tradeDao.update(trade.copy(note = trade.note?.ifBlank { null }))
-        tradeItemDao.deleteForTrade(trade.id)
-        tradeItemDao.insertAll(items.map { it.copy(id = 0, tradeId = trade.id) })
+        tradeItemDao.deleteForTrade(trade.id) // cascades away the old trade_photos too
+        val itemIds = tradeItemDao.insertAll(items.map { it.copy(id = 0, tradeId = trade.id) })
+        insertTradePhotos(trade.id, itemIds, itemPhotoPaths, tradePhotoPaths)
+    }
+
+    private suspend fun insertTradePhotos(
+        tradeId: Long,
+        itemIds: List<Long>,
+        itemPhotoPaths: List<List<String>>,
+        tradePhotoPaths: List<String>
+    ) {
+        val now = System.currentTimeMillis()
+        val photos = itemIds.zip(itemPhotoPaths).flatMap { (itemId, paths) ->
+            paths.map { path ->
+                TradePhoto(tradeId = tradeId, tradeItemId = itemId, photoPath = path, timestamp = now)
+            }
+        } + tradePhotoPaths.map { path ->
+            TradePhoto(tradeId = tradeId, tradeItemId = null, photoPath = path, timestamp = now)
+        }
+        if (photos.isNotEmpty()) tradePhotoDao.insertAll(photos)
     }
 
     /** Removes a trade by id — used by delete and the save-snackbar "Undo". */

@@ -7,33 +7,39 @@ import java.util.Locale
  * A mutable, in-progress trade line held in the trade entry form. Money fields
  * are kept as text so partial input (e.g. "1.") is preserved while typing.
  *
- * OUT lines are identified by SKU (scanned or typed) and may carry an optional
- * cost basis; IN lines are identified by card name and never carry one
- * (decisions T2 and T5).
+ * OUT lines are identified by SKU (scanned or typed); IN lines are identified
+ * by card name (decision T5). Both sides carry a sale cost (required) and an
+ * optional acquisition cost — no market-value/margin maths (v1.3 revision).
  */
 data class DraftTradeItem(
     val direction: String,
     val sku: String = "",
     val cardName: String = "",
     val quantity: Int = 1,
-    val valueText: String = "",
-    val costText: String = "",
+    val saleCostText: String = "",
+    val acquisitionCostText: String = "",
     /** Optional per-line note — serial number, condition, etc. (v1.3) */
-    val note: String = ""
+    val note: String = "",
+    /**
+     * Photos captured for this specific card, not yet persisted — UI-only
+     * state; [TradeItem] itself carries no photo field, they live in the
+     * separate [TradePhoto] table once saved. (v1.3 revision)
+     */
+    val photoPaths: List<String> = emptyList()
 ) {
-    val value: Double? get() = valueText.toDoubleOrNull()
-    val costBasis: Double? get() = costText.toDoubleOrNull()
+    val saleCost: Double? get() = saleCostText.toDoubleOrNull()
+    val acquisitionCost: Double? get() = acquisitionCostText.toDoubleOrNull()
 
     val isValid: Boolean
         get() {
-            val v = value ?: return false
+            val v = saleCost ?: return false
             val identified =
                 if (direction == TradeItem.DIRECTION_OUT) sku.isNotBlank()
                 else cardName.isNotBlank()
             return identified && v >= 0 && quantity >= 1
         }
 
-    val lineValue: Double get() = (value ?: 0.0) * quantity
+    val lineValue: Double get() = (saleCost ?: 0.0) * quantity
 
     /** Display identifier, mirroring [TradeItem.label]. */
     val label: String
@@ -45,21 +51,23 @@ data class DraftTradeItem(
             sku = sku.trim().ifBlank { null },
             cardName = cardName.trim().ifBlank { null },
             quantity = quantity,
-            tradeValue = value ?: 0.0,
-            costBasis = if (direction == TradeItem.DIRECTION_OUT) costBasis else null,
+            saleCost = saleCost ?: 0.0,
+            acquisitionCost = acquisitionCost,
             note = note.trim().ifBlank { null }
         )
 
     companion object {
-        fun from(item: TradeItem): DraftTradeItem =
+        fun from(item: TradeItem, photoPaths: List<String> = emptyList()): DraftTradeItem =
             DraftTradeItem(
                 direction = item.direction,
                 sku = item.sku ?: "",
                 cardName = item.cardName ?: "",
                 quantity = item.quantity,
-                valueText = String.format(Locale.US, "%.2f", item.tradeValue),
-                costText = item.costBasis?.let { String.format(Locale.US, "%.2f", it) } ?: "",
-                note = item.note ?: ""
+                saleCostText = String.format(Locale.US, "%.2f", item.saleCost),
+                acquisitionCostText =
+                    item.acquisitionCost?.let { String.format(Locale.US, "%.2f", it) } ?: "",
+                note = item.note ?: "",
+                photoPaths = photoPaths
             )
     }
 }

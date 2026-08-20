@@ -29,8 +29,17 @@ data class Sale(
     val sessionId: Long,
     /** Optional note covering the whole transaction. */
     val note: String? = null,
-    /** Absolute path to a photo in app storage; null if none taken. */
+    /**
+     * Absolute path to a photo in app storage; null if none taken. Deprecated
+     * by the [SalePhoto] table (v1.3 revision), which supports more than one
+     * photo per sale — kept only so old rows aren't silently dropped.
+     */
     val photoPath: String? = null,
     /** Epoch millis captured automatically at save time. */
-    val timestamp: Long
+    val timestamp: Long,
+    /**
+     * Cash physically handed over by the customer, in dollars; null when not
+     * recorded. Change due = cashReceived − the sale total. (v1.3)
+     */
+    val cashReceived: Double? = null
 )

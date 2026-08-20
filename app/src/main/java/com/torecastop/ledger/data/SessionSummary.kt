@@ -12,8 +12,10 @@ data class SessionSummary(
     /** Cash taken through sales. */
     val cashTotal: Double,
     val tradeCount: Int,
-    /** Sum of each trade's headline value added (margin, else value swing). */
-    val tradeValueAdded: Double,
+    /** Total sale cost of cards given (OUT), across all trades. (v1.3 revision) */
+    val tradeOutTotal: Double,
+    /** Total sale cost of cards received (IN), across all trades. (v1.3 revision) */
+    val tradeInTotal: Double,
     /** Net cash moved by trades, signed from the store's side. */
     val tradeCash: Double,
     /** Epoch millis of the earliest recorded entry; null when there are none. */
@@ -54,7 +56,8 @@ data class SessionSummary(
                 itemCount = sales.sumOf { it.itemQuantity },
                 cashTotal = sales.sumOf { it.total },
                 tradeCount = trades.size,
-                tradeValueAdded = trades.sumOf { it.valueAdded },
+                tradeOutTotal = trades.sumOf { it.outTotal },
+                tradeInTotal = trades.sumOf { it.inTotal },
                 tradeCash = trades.sumOf { it.cashReceived },
                 firstTimestamp = timestamps.minOrNull(),
                 lastTimestamp = timestamps.maxOrNull(),

@@ -49,6 +49,7 @@ import androidx.compose.ui.unit.dp
 import com.torecastop.ledger.data.Trade
 import com.torecastop.ledger.data.TradeItem
 import com.torecastop.ledger.data.TradeWithItems
+import com.torecastop.ledger.intake.SellerIntakeForm
 import com.torecastop.ledger.ui.scan.BarcodeScannerScreen
 import java.io.File
 
@@ -56,21 +57,35 @@ import java.io.File
  * Full-screen trade entry (and editing, when [existing] is set).
  *
  * The two sides are deliberately asymmetric (the key design insight):
- *  - "Cards out" are the store's stock — scan or type their SKU, with an
- *    optional per-card cost basis (decision T2).
- *  - "Cards in" are the customer's — no barcode yet, so name + value are
- *    entered manually; real SKUs get assigned later at intake (decision T5).
+ *  - "Cards out" are the store's stock — scan or type their SKU.
+ *  - "Cards in" are the customer's — no barcode yet, so name is entered
+ *    manually; real SKUs get assigned later at intake (decision T5).
  *
- * A live balance card shows OUT vs IN + cash and the value-added headline
- * (margin over cost when every OUT card has a cost basis, else the value
- * swing at market — decision T1) before the trade is committed.
+ * Every card line carries a sale cost (what it's valued at in this deal) and
+ * an optional acquisition cost (what the store paid, or is now paying, to
+ * acquire it) — plain figures only, no market-value/margin calculation
+ * (that headline was scrapped in this v1.3 revision).
  */
 @OptIn(ExperimentalMaterial3Api::class)
 @Composable
 fun TradeEntryScreen(
     existing: TradeWithItems?,
-    onSaveNew: (items: List<TradeItem>, cashAmount: Double, cashDirection: String, note: String?, photoPath: String?) -> Unit,
-    onSaveEdit: (Trade, List<TradeItem>) -> Unit,
+    onSaveNew: (
+        items: List<TradeItem>,
+        itemPhotoPaths: List<List<String>>,
+        cashAmount: Double,
+        cashDirection: String,
+        note: String?,
+        tradePhotoPaths: List<String>,
+        customerPhone: String?,
+        customerEmail: String?
+    ) -> Unit,
+    onSaveEdit: (
+        trade: Trade,
+        items: List<TradeItem>,
+        itemPhotoPaths: List<List<String>>,
+        tradePhotoPaths: List<String>
+    ) -> Unit,
     onDelete: (Trade) -> Unit,
     onCancel: () -> Unit
 ) {
@@ -78,27 +93,34 @@ fun TradeEntryScreen(
 
     val outItems = remember {
         mutableStateListOf<DraftTradeItem>().apply {
-            existing?.outItems?.forEach { add(DraftTradeItem.from(it)) }
+            existing?.outItems?.forEach {
+                add(DraftTradeItem.from(it, existing.photosFor(it.id).map { p -> p.photoPath }))
+            }
         }
     }
     val inItems = remember {
         mutableStateListOf<DraftTradeItem>().apply {
-            existing?.inItems?.forEach { add(DraftTradeItem.from(it)) }
+            existing?.inItems?.forEach {
+                add(DraftTradeItem.from(it, existing.photosFor(it.id).map { p -> p.photoPath }))
+            }
         }
     }
 
     // Pending (not yet added) OUT line.
     var outSku by remember { mutableStateOf("") }
     var outQuantity by remember { mutableStateOf(1) }
-    var outValueText by remember { mutableStateOf("") }
-    var outCostText by remember { mutableStateOf("") }
+    var outSaleCostText by remember { mutableStateOf("") }
+    var outAcquisitionCostText by remember { mutableStateOf("") }
     var outNote by remember { mutableStateOf("") }
+    var outPhotoPaths by remember { mutableStateOf<List<String>>(emptyList()) }
 
     // Pending (not yet added) IN line.
     var inName by remember { mutableStateOf("") }
     var inQuantity by remember { mutableStateOf(1) }
-    var inValueText by remember { mutableStateOf("") }
+    var inSaleCostText by remember { mutableStateOf("") }
+    var inAcquisitionCostText by remember { mutableStateOf("") }
     var inNote by remember { mutableStateOf("") }
+    var inPhotoPaths by remember { mutableStateOf<List<String>>(emptyList()) }
 
     var cashText by remember {
         mutableStateOf(
@@ -110,16 +132,25 @@ fun TradeEntryScreen(
         mutableStateOf(existing?.trade?.cashDirection ?: Trade.CASH_STORE_RECEIVES)
     }
     var note by remember { mutableStateOf(existing?.trade?.note ?: "") }
-    var photoPath by remember { mutableStateOf(existing?.trade?.photoPath) }
+    var customerPhone by remember { mutableStateOf(existing?.trade?.customerPhone ?: "") }
+    var customerEmail by remember { mutableStateOf(existing?.trade?.customerEmail ?: "") }
+    var tradePhotoPaths by remember {
+        mutableStateOf<List<String>>(existing?.tradePhotos?.map { it.photoPath } ?: emptyList())
+    }
     var showScanner by remember { mutableStateOf(false) }
     var confirmDelete by remember { mutableStateOf(false) }
     var confirmHighValue by remember { mutableStateOf(false) }
+    var showIntakeQr by remember { mutableStateOf(false) }
 
     fun cancel() {
-        // A photo taken for a NEW trade isn't attached to anything yet; for an
-        // edit, only discard a newly captured replacement, never the original.
-        val original = existing?.trade?.photoPath
-        photoPath?.takeIf { it != original }?.let { File(it).delete() }
+        // Nothing captured here is attached to a saved trade yet — clean up
+        // every file so a cancelled trade doesn't leave orphans on disk. For
+        // an edit, only newly captured files (not already-persisted ones).
+        val original = existing?.photos?.map { it.photoPath }?.toSet() ?: emptySet()
+        (outItems.flatMap { it.photoPaths } + inItems.flatMap { it.photoPaths } +
+            outPhotoPaths + inPhotoPaths + tradePhotoPaths)
+            .filter { it !in original }
+            .forEach { File(it).delete() }
         onCancel()
     }
 
@@ -137,32 +168,37 @@ fun TradeEntryScreen(
         direction = TradeItem.DIRECTION_OUT,
         sku = outSku,
         quantity = outQuantity,
-        valueText = outValueText,
-        costText = outCostText,
-        note = outNote
+        saleCostText = outSaleCostText,
+        acquisitionCostText = outAcquisitionCostText,
+        note = outNote,
+        photoPaths = outPhotoPaths
     )
 
     fun pendingIn() = DraftTradeItem(
         direction = TradeItem.DIRECTION_IN,
         cardName = inName,
         quantity = inQuantity,
-        valueText = inValueText,
-        note = inNote
+        saleCostText = inSaleCostText,
+        acquisitionCostText = inAcquisitionCostText,
+        note = inNote,
+        photoPaths = inPhotoPaths
     )
 
     fun addPendingOut() {
         if (!pendingOut().isValid) return
         outItems.add(pendingOut())
-        outSku = ""; outQuantity = 1; outValueText = ""; outCostText = ""; outNote = ""
+        outSku = ""; outQuantity = 1; outSaleCostText = ""; outAcquisitionCostText = ""
+        outNote = ""; outPhotoPaths = emptyList()
     }
 
     fun addPendingIn() {
         if (!pendingIn().isValid) return
         inItems.add(pendingIn())
-        inName = ""; inQuantity = 1; inValueText = ""; inNote = ""
+        inName = ""; inQuantity = 1; inSaleCostText = ""; inAcquisitionCostText = ""
+        inNote = ""; inPhotoPaths = emptyList()
     }
 
-    // Live totals include valid pending lines, so the balance reads true while typing.
+    // Live totals include valid pending lines, so they read true while typing.
     val effectiveOut = outItems.toList() + listOfNotNull(pendingOut().takeIf { it.isValid })
     val effectiveIn = inItems.toList() + listOfNotNull(pendingIn().takeIf { it.isValid })
     val cashAmount = cashText.toDoubleOrNull() ?: 0.0
@@ -171,30 +207,38 @@ fun TradeEntryScreen(
 
     val outTotal = effectiveOut.sumOf { it.lineValue }
     val inTotal = effectiveIn.sumOf { it.lineValue }
-    val valueSwing = inTotal + cashReceived - outTotal
-    val hasFullCostBasis = effectiveOut.all { it.costBasis != null }
-    val margin =
-        if (hasFullCostBasis) inTotal + cashReceived - effectiveOut.sumOf { it.quantity * (it.costBasis ?: 0.0) }
-        else null
-    val valueAdded = margin ?: valueSwing
 
     val canSave = effectiveOut.isNotEmpty() || effectiveIn.isNotEmpty()
 
     fun commitSave() {
         if (!canSave) return
-        val items = (effectiveOut + effectiveIn).map { it.toTradeItem() }
+        val drafts = effectiveOut + effectiveIn
+        val items = drafts.map { it.toTradeItem() }
+        val itemPhotoPaths = drafts.map { it.photoPaths }
         if (isEdit) {
             onSaveEdit(
                 existing!!.trade.copy(
                     note = note.trim().ifBlank { null },
-                    photoPath = photoPath,
                     cashAmount = cashAmount,
-                    cashDirection = cashDirection
+                    cashDirection = cashDirection,
+                    customerPhone = customerPhone.trim().ifBlank { null },
+                    customerEmail = customerEmail.trim().ifBlank { null }
                 ),
-                items
+                items,
+                itemPhotoPaths,
+                tradePhotoPaths
             )
         } else {
-            onSaveNew(items, cashAmount, cashDirection, note.trim().ifBlank { null }, photoPath)
+            onSaveNew(
+                items,
+                itemPhotoPaths,
+                cashAmount,
+                cashDirection,
+                note.trim().ifBlank { null },
+                tradePhotoPaths,
+                customerPhone.trim().ifBlank { null },
+                customerEmail.trim().ifBlank { null }
+            )
         }
     }
 
@@ -228,6 +272,16 @@ fun TradeEntryScreen(
             onConfirm = { confirmHighValue = false; commitSave() },
             onDismiss = { confirmHighValue = false }
         )
+    }
+
+    if (showIntakeQr && existing != null) {
+        SellerIntakeForm.urlFor(existing.trade.id)?.let { url ->
+            SellerIntakeQrDialog(
+                url = url,
+                tradeId = existing.trade.id,
+                onDismiss = { showIntakeQr = false }
+            )
+        }
     }
 
     Scaffold(
@@ -264,7 +318,8 @@ fun TradeEntryScreen(
                         .height(56.dp)
                 ) {
                     Text(
-                        if (canSave) "Save trade · ${formatSignedCurrency(valueAdded)}"
+                        if (canSave)
+                            "Save trade · out ${formatCurrency(outTotal)} / in ${formatCurrency(inTotal)}"
                         else "Save trade",
                         style = MaterialTheme.typography.titleMedium
                     )
@@ -289,7 +344,10 @@ fun TradeEntryScreen(
             Spacer(modifier = Modifier.height(8.dp))
 
             outItems.forEachIndexed { index, item ->
-                TradeDraftRow(item = item, onRemove = { outItems.removeAt(index) })
+                TradeDraftRow(item = item, onRemove = {
+                    item.photoPaths.forEach { File(it).delete() }
+                    outItems.removeAt(index)
+                })
             }
 
             OutlinedTextField(
@@ -314,6 +372,13 @@ fun TradeEntryScreen(
                 modifier = Modifier.fillMaxWidth()
             )
             Spacer(modifier = Modifier.height(8.dp))
+            MultiPhotoCaptureRow(
+                photoPaths = outPhotoPaths,
+                onPhotosChanged = { outPhotoPaths = it },
+                filePrefix = "trade_out",
+                label = "Photo of this card"
+            )
+            Spacer(modifier = Modifier.height(8.dp))
             Row(
                 modifier = Modifier.fillMaxWidth(),
                 verticalAlignment = Alignment.CenterVertically
@@ -321,9 +386,9 @@ fun TradeEntryScreen(
                 QuantityStepper(quantity = outQuantity, onChange = { outQuantity = it })
                 Spacer(modifier = Modifier.width(12.dp))
                 OutlinedTextField(
-                    value = outValueText,
-                    onValueChange = { if (it.matches(MONEY_INPUT_REGEX)) outValueText = it },
-                    label = { Text("Value") },
+                    value = outSaleCostText,
+                    onValueChange = { if (it.matches(MONEY_INPUT_REGEX)) outSaleCostText = it },
+                    label = { Text("Sale cost") },
                     prefix = { Text("$") },
                     singleLine = true,
                     keyboardOptions = KeyboardOptions(keyboardType = KeyboardType.Decimal),
@@ -331,9 +396,11 @@ fun TradeEntryScreen(
                 )
                 Spacer(modifier = Modifier.width(8.dp))
                 OutlinedTextField(
-                    value = outCostText,
-                    onValueChange = { if (it.matches(MONEY_INPUT_REGEX)) outCostText = it },
-                    label = { Text("Cost") },
+                    value = outAcquisitionCostText,
+                    onValueChange = {
+                        if (it.matches(MONEY_INPUT_REGEX)) outAcquisitionCostText = it
+                    },
+                    label = { Text("Acq. cost") },
                     placeholder = { Text("opt.") },
                     prefix = { Text("$") },
                     singleLine = true,
@@ -361,7 +428,10 @@ fun TradeEntryScreen(
             Spacer(modifier = Modifier.height(8.dp))
 
             inItems.forEachIndexed { index, item ->
-                TradeDraftRow(item = item, onRemove = { inItems.removeAt(index) })
+                TradeDraftRow(item = item, onRemove = {
+                    item.photoPaths.forEach { File(it).delete() }
+                    inItems.removeAt(index)
+                })
             }
 
             OutlinedTextField(
@@ -380,6 +450,13 @@ fun TradeEntryScreen(
                 modifier = Modifier.fillMaxWidth()
             )
             Spacer(modifier = Modifier.height(8.dp))
+            MultiPhotoCaptureRow(
+                photoPaths = inPhotoPaths,
+                onPhotosChanged = { inPhotoPaths = it },
+                filePrefix = "trade_in",
+                label = "Photo of this card"
+            )
+            Spacer(modifier = Modifier.height(8.dp))
             Row(
                 modifier = Modifier.fillMaxWidth(),
                 verticalAlignment = Alignment.CenterVertically
@@ -387,9 +464,22 @@ fun TradeEntryScreen(
                 QuantityStepper(quantity = inQuantity, onChange = { inQuantity = it })
                 Spacer(modifier = Modifier.width(12.dp))
                 OutlinedTextField(
-                    value = inValueText,
-                    onValueChange = { if (it.matches(MONEY_INPUT_REGEX)) inValueText = it },
-                    label = { Text("Value") },
+                    value = inSaleCostText,
+                    onValueChange = { if (it.matches(MONEY_INPUT_REGEX)) inSaleCostText = it },
+                    label = { Text("Sale cost") },
+                    prefix = { Text("$") },
+                    singleLine = true,
+                    keyboardOptions = KeyboardOptions(keyboardType = KeyboardType.Decimal),
+                    modifier = Modifier.weight(1f)
+                )
+                Spacer(modifier = Modifier.width(8.dp))
+                OutlinedTextField(
+                    value = inAcquisitionCostText,
+                    onValueChange = {
+                        if (it.matches(MONEY_INPUT_REGEX)) inAcquisitionCostText = it
+                    },
+                    label = { Text("Acq. cost") },
+                    placeholder = { Text("opt.") },
                     prefix = { Text("$") },
                     singleLine = true,
                     keyboardOptions = KeyboardOptions(keyboardType = KeyboardType.Decimal),
@@ -435,7 +525,7 @@ fun TradeEntryScreen(
 
             Spacer(modifier = Modifier.height(16.dp))
 
-            // --- Live balance ---
+            // --- Running totals (plain figures — no margin/value-added calc) ---
             Card(
                 modifier = Modifier.fillMaxWidth(),
                 colors = CardDefaults.cardColors(
@@ -454,25 +544,35 @@ fun TradeEntryScreen(
                             style = MaterialTheme.typography.bodyLarge
                         )
                     }
-                    Spacer(modifier = Modifier.height(8.dp))
-                    Text(
-                        "Value added ${formatSignedCurrency(valueAdded)}",
-                        style = MaterialTheme.typography.headlineSmall,
-                        fontWeight = FontWeight.Bold,
-                        color = when {
-                            valueAdded > 0.0049 -> MaterialTheme.colorScheme.secondary
-                            valueAdded < -0.0049 -> MaterialTheme.colorScheme.error
-                            else -> MaterialTheme.colorScheme.onSurface
-                        }
-                    )
-                    Text(
-                        if (margin != null)
-                            "Margin over cost · market swing ${formatSignedCurrency(valueSwing)}"
-                        else
-                            "At market values — add a cost on every outgoing card to see true margin",
-                        style = MaterialTheme.typography.bodySmall,
-                        color = MaterialTheme.colorScheme.onSurfaceVariant
-                    )
+                }
+            }
+
+            Spacer(modifier = Modifier.height(16.dp))
+
+            // --- Seller/customer contact (optional, v1.3) ---
+            Text("Seller contact — optional", style = MaterialTheme.typography.titleMedium)
+            Spacer(modifier = Modifier.height(8.dp))
+            OutlinedTextField(
+                value = customerPhone,
+                onValueChange = { customerPhone = it },
+                label = { Text("Phone") },
+                singleLine = true,
+                keyboardOptions = KeyboardOptions(keyboardType = KeyboardType.Phone),
+                modifier = Modifier.fillMaxWidth()
+            )
+            Spacer(modifier = Modifier.height(8.dp))
+            OutlinedTextField(
+                value = customerEmail,
+                onValueChange = { customerEmail = it },
+                label = { Text("Email") },
+                singleLine = true,
+                keyboardOptions = KeyboardOptions(keyboardType = KeyboardType.Email),
+                modifier = Modifier.fillMaxWidth()
+            )
+            if (isEdit && SellerIntakeForm.isConfigured) {
+                Spacer(modifier = Modifier.height(8.dp))
+                TextButton(onClick = { showIntakeQr = true }) {
+                    Text("Show seller intake QR")
                 }
             }
 
@@ -488,11 +588,12 @@ fun TradeEntryScreen(
 
             Spacer(modifier = Modifier.height(12.dp))
 
-            PhotoCaptureRow(
-                photoPath = photoPath,
-                onPhotoChanged = { photoPath = it },
-                filePrefix = "trade",
-                deleteReplacedFiles = !isEdit
+            Text("Photos of the whole trade (optional)", style = MaterialTheme.typography.bodyMedium)
+            Spacer(modifier = Modifier.height(4.dp))
+            MultiPhotoCaptureRow(
+                photoPaths = tradePhotoPaths,
+                onPhotosChanged = { tradePhotoPaths = it },
+                filePrefix = "trade"
             )
         }
     }
@@ -514,14 +615,21 @@ private fun TradeDraftRow(item: DraftTradeItem, onRemove: () -> Unit) {
                 fontWeight = FontWeight.Medium
             )
             Text(
-                "${formatCurrency(item.value ?: 0.0)} each" +
-                    (item.costBasis?.let { " · cost ${formatCurrency(it)}" } ?: ""),
+                "${formatCurrency(item.saleCost ?: 0.0)} each" +
+                    (item.acquisitionCost?.let { " · acq. ${formatCurrency(it)}" } ?: ""),
                 style = MaterialTheme.typography.bodySmall,
                 color = MaterialTheme.colorScheme.onSurfaceVariant
             )
             if (item.note.isNotBlank()) {
                 Text(
                     item.note,
+                    style = MaterialTheme.typography.bodySmall,
+                    color = MaterialTheme.colorScheme.onSurfaceVariant
+                )
+            }
+            if (item.photoPaths.isNotEmpty()) {
+                Text(
+                    "${item.photoPaths.size} photo${if (item.photoPaths.size == 1) "" else "s"}",
                     style = MaterialTheme.typography.bodySmall,
                     color = MaterialTheme.colorScheme.onSurfaceVariant
                 )

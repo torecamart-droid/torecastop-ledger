@@ -11,7 +11,13 @@ data class DraftItem(
     val quantity: Int = 1,
     val priceText: String = "",
     /** Optional per-line note — serial number, condition, etc. (v1.3) */
-    val note: String = ""
+    val note: String = "",
+    /**
+     * Photos captured for this specific item line, not yet persisted — UI-only
+     * state; [SaleItem] itself carries no photo field, they live in the
+     * separate [SalePhoto] table once saved. (v1.3 revision)
+     */
+    val photoPaths: List<String> = emptyList()
 ) {
     val price: Double? get() = priceText.toDoubleOrNull()
 
@@ -29,12 +35,13 @@ data class DraftItem(
         )
 
     companion object {
-        fun from(item: SaleItem): DraftItem =
+        fun from(item: SaleItem, photoPaths: List<String> = emptyList()): DraftItem =
             DraftItem(
                 sku = item.sku,
                 quantity = item.quantity,
                 priceText = String.format(java.util.Locale.US, "%.2f", item.price),
-                note = item.note ?: ""
+                note = item.note ?: "",
+                photoPaths = photoPaths
             )
     }
 }

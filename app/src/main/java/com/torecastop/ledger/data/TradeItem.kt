@@ -1,5 +1,6 @@
 package com.torecastop.ledger.data
 
+import androidx.room.ColumnInfo
 import androidx.room.Entity
 import androidx.room.ForeignKey
 import androidx.room.Ignore
@@ -11,9 +12,15 @@ import androidx.room.PrimaryKey
  *
  * The two sides are not symmetrical:
  *  - [DIRECTION_OUT] lines are the store's stock — they carry a [sku]
- *    (scanned from the printed label) and may carry an optional [costBasis].
+ *    (scanned from the printed label).
  *  - [DIRECTION_IN] lines are the customer's cards — no SKU yet, identified by
  *    [cardName]; a real SKU is assigned later during the normal intake flow.
+ *
+ * Every line carries two plain dollar figures — no market-value/margin maths
+ * (that calculation was scrapped in this v1.3 revision, per the planning doc):
+ *  - [saleCost]: what the card is valued at in this deal.
+ *  - [acquisitionCost]: what the store paid (or is now paying, for an IN
+ *    card) to acquire it. Always optional — recorded when known.
  *
  * Deleting the parent trade cascades to its items.
  */
@@ -39,19 +46,30 @@ data class TradeItem(
     /** Free-text card name — the identifier for IN lines. */
     val cardName: String? = null,
     val quantity: Int = 1,
-    /** Per-unit value the card is counted as in the deal, in dollars. */
-    val tradeValue: Double,
-    /** Per-unit cost to the store, in dollars. Optional, OUT lines only. */
-    val costBasis: Double? = null,
+    /**
+     * Per-unit value the card is counted as in this deal, in dollars.
+     * Column kept as `tradeValue` — same data, renamed at the Kotlin level
+     * only, so no migration is needed for the rename itself.
+     */
+    @ColumnInfo(name = "tradeValue")
+    val saleCost: Double,
+    /**
+     * Per-unit cost to the store, in dollars. Optional on both directions —
+     * for OUT lines it's what the store originally paid; for an IN line it's
+     * what the store is now paying to acquire it (often equal to [saleCost],
+     * but kept separate in case they differ). Column kept as `costBasis`.
+     */
+    @ColumnInfo(name = "costBasis")
+    val acquisitionCost: Double? = null,
     /**
      * Optional per-line note — e.g. a serial number or condition detail for a
      * specific card. Distinct from the trade-level [Trade.note]. (v1.3)
      */
     val note: String? = null
 ) {
-    /** Line total = quantity × per-unit trade value. Not stored; computed on read. */
+    /** Line total = quantity × per-unit sale cost. Not stored; computed on read. */
     @get:Ignore
-    val lineValue: Double get() = quantity * tradeValue
+    val lineValue: Double get() = quantity * saleCost
 
     /** Display identifier: card name when present, otherwise the SKU. */
     @get:Ignore
