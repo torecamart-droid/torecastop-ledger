@@ -1,5 +1,6 @@
 package com.torecastop.ledger.ui.session
 
+import androidx.compose.foundation.Image
 import androidx.compose.foundation.layout.Arrangement
 import androidx.compose.foundation.layout.Column
 import androidx.compose.foundation.layout.Row
@@ -14,6 +15,7 @@ import androidx.compose.foundation.text.KeyboardOptions
 import androidx.compose.foundation.verticalScroll
 import androidx.compose.material.icons.Icons
 import androidx.compose.material.icons.filled.Close
+import androidx.compose.material.icons.filled.ContentCopy
 import androidx.compose.material3.AlertDialog
 import androidx.compose.material3.Card
 import androidx.compose.material3.FilterChip
@@ -31,10 +33,14 @@ import androidx.compose.runtime.remember
 import androidx.compose.runtime.setValue
 import androidx.compose.ui.Alignment
 import androidx.compose.ui.Modifier
+import androidx.compose.ui.graphics.asImageBitmap
+import androidx.compose.ui.platform.LocalClipboardManager
+import androidx.compose.ui.text.AnnotatedString
 import androidx.compose.ui.text.font.FontWeight
 import androidx.compose.ui.text.input.KeyboardType
 import androidx.compose.ui.unit.dp
 import com.torecastop.ledger.data.CashAdjustment
+import com.torecastop.ledger.intake.QrCodeGenerator
 import java.io.File
 import java.util.Locale
 
@@ -68,6 +74,58 @@ fun QuantityEntryDialog(
             ) { Text("Set") }
         },
         dismissButton = { TextButton(onClick = onDismiss) { Text("Cancel") } }
+    )
+}
+
+/**
+ * Shows the seller intake QR code (and the raw link, with a copy button) for
+ * one saved trade — "any seller that comes to our table" scans it to fill in
+ * their own contact details on a form the team hosts elsewhere. (v1.3)
+ */
+@Composable
+fun SellerIntakeQrDialog(
+    url: String,
+    tradeId: Long,
+    onDismiss: () -> Unit
+) {
+    val clipboard = LocalClipboardManager.current
+    val qrBitmap = remember(url) { QrCodeGenerator.generate(url) }
+
+    AlertDialog(
+        onDismissRequest = onDismiss,
+        title = { Text("Seller intake — trade #$tradeId") },
+        text = {
+            Column(
+                modifier = Modifier.fillMaxWidth(),
+                horizontalAlignment = Alignment.CenterHorizontally
+            ) {
+                Text(
+                    "Have the seller scan this to fill in their details. " +
+                        "Reference code $tradeId links their response back to this trade.",
+                    style = MaterialTheme.typography.bodyMedium,
+                    color = MaterialTheme.colorScheme.onSurfaceVariant
+                )
+                Spacer(modifier = Modifier.height(12.dp))
+                Image(
+                    bitmap = qrBitmap.asImageBitmap(),
+                    contentDescription = "Seller intake QR code",
+                    modifier = Modifier.size(220.dp)
+                )
+                Spacer(modifier = Modifier.height(12.dp))
+                Row(verticalAlignment = Alignment.CenterVertically) {
+                    Text(
+                        url,
+                        style = MaterialTheme.typography.bodySmall,
+                        color = MaterialTheme.colorScheme.onSurfaceVariant,
+                        modifier = Modifier.weight(1f)
+                    )
+                    IconButton(onClick = { clipboard.setText(AnnotatedString(url)) }) {
+                        Icon(Icons.Filled.ContentCopy, contentDescription = "Copy link")
+                    }
+                }
+            }
+        },
+        confirmButton = { TextButton(onClick = onDismiss) { Text("Done") } }
     )
 }
 

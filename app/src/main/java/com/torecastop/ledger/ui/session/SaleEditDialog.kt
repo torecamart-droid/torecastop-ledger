@@ -36,23 +36,39 @@ import com.torecastop.ledger.data.SaleWithItems
 
 /**
  * Edit a whole sale while the session is active: change, add or remove item
- * lines, edit the shared note, or delete the sale. [onSave] receives the
- * updated header plus the current draft items.
+ * lines (with their photos), edit the shared note/photos, or delete the sale.
+ * [onSave] receives the updated header plus the current draft items and
+ * every photo (item-level, parallel to the items; and whole-sale). (v1.3)
  */
 @Composable
 fun SaleEditDialog(
     saleWithItems: SaleWithItems,
-    onSave: (Sale, List<com.torecastop.ledger.data.SaleItem>) -> Unit,
+    onSave: (
+        sale: Sale,
+        items: List<com.torecastop.ledger.data.SaleItem>,
+        itemPhotoPaths: List<List<String>>,
+        salePhotoPaths: List<String>
+    ) -> Unit,
     onDelete: (Sale) -> Unit,
     onDismiss: () -> Unit
 ) {
     val sale = saleWithItems.sale
     val items = remember {
         mutableStateListOf<DraftItem>().apply {
-            addAll(saleWithItems.items.map { DraftItem.from(it) })
+            addAll(
+                saleWithItems.items.map {
+                    DraftItem.from(it, saleWithItems.photosFor(it.id).map { p -> p.photoPath })
+                }
+            )
         }
     }
     var note by remember { mutableStateOf(sale.note ?: "") }
+    var cashReceivedText by remember {
+        mutableStateOf(sale.cashReceived?.let { String.format(java.util.Locale.US, "%.2f", it) } ?: "")
+    }
+    var salePhotoPaths by remember {
+        mutableStateOf(saleWithItems.salePhotos.map { it.photoPath })
+    }
 
     val canSave = items.isNotEmpty() && items.all { it.isValid }
 
@@ -84,11 +100,29 @@ fun SaleEditDialog(
 
                 Spacer(modifier = Modifier.height(8.dp))
                 OutlinedTextField(
+                    value = cashReceivedText,
+                    onValueChange = { if (it.matches(MONEY_INPUT_REGEX)) cashReceivedText = it },
+                    label = { Text("Cash received (optional)") },
+                    prefix = { Text("$") },
+                    singleLine = true,
+                    keyboardOptions = KeyboardOptions(keyboardType = KeyboardType.Decimal),
+                    modifier = Modifier.fillMaxWidth()
+                )
+                Spacer(modifier = Modifier.height(8.dp))
+                OutlinedTextField(
                     value = note,
                     onValueChange = { note = it },
                     label = { Text("Note (optional)") },
                     singleLine = true,
                     modifier = Modifier.fillMaxWidth()
+                )
+                Spacer(modifier = Modifier.height(8.dp))
+                Text("Photos of the whole sale", style = MaterialTheme.typography.bodyMedium)
+                Spacer(modifier = Modifier.height(4.dp))
+                MultiPhotoCaptureRow(
+                    photoPaths = salePhotoPaths,
+                    onPhotosChanged = { salePhotoPaths = it },
+                    filePrefix = "sale"
                 )
             }
         },
@@ -97,8 +131,13 @@ fun SaleEditDialog(
                 enabled = canSave,
                 onClick = {
                     onSave(
-                        sale.copy(note = note.trim().ifBlank { null }),
-                        items.map { it.toSaleItem() }
+                        sale.copy(
+                            note = note.trim().ifBlank { null },
+                            cashReceived = cashReceivedText.toDoubleOrNull()
+                        ),
+                        items.map { it.toSaleItem() },
+                        items.map { it.photoPaths },
+                        salePhotoPaths
                     )
                 }
             ) { Text("Save") }
@@ -155,6 +194,13 @@ private fun ItemEditor(
             label = { Text("Item note (optional)") },
             singleLine = true,
             modifier = Modifier.fillMaxWidth()
+        )
+        Spacer(modifier = Modifier.height(4.dp))
+        MultiPhotoCaptureRow(
+            photoPaths = item.photoPaths,
+            onPhotosChanged = { onChange(item.copy(photoPaths = it)) },
+            filePrefix = "sale_item",
+            label = "Photo"
         )
     }
 }

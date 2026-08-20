@@ -60,7 +60,13 @@ import java.io.File
 @OptIn(ExperimentalMaterial3Api::class)
 @Composable
 fun SaleEntryScreen(
-    onSave: (items: List<SaleItem>, note: String?, photoPath: String?) -> Unit,
+    onSave: (
+        items: List<SaleItem>,
+        itemPhotoPaths: List<List<String>>,
+        note: String?,
+        salePhotoPaths: List<String>,
+        cashReceived: Double?
+    ) -> Unit,
     onCancel: () -> Unit
 ) {
     val cart = remember { mutableStateListOf<DraftItem>() }
@@ -68,8 +74,10 @@ fun SaleEntryScreen(
     var quantity by remember { mutableStateOf(1) }
     var priceText by remember { mutableStateOf("") }
     var itemNote by remember { mutableStateOf("") }
+    var itemPhotoPaths by remember { mutableStateOf<List<String>>(emptyList()) }
     var note by remember { mutableStateOf("") }
-    var photoPath by remember { mutableStateOf<String?>(null) }
+    var cashReceivedText by remember { mutableStateOf("") }
+    var salePhotoPaths by remember { mutableStateOf<List<String>>(emptyList()) }
     var showScanner by remember { mutableStateOf(false) }
     var scannedSku by remember { mutableStateOf<String?>(null) }
     var confirmHighValue by remember { mutableStateOf(false) }
@@ -78,8 +86,10 @@ fun SaleEntryScreen(
     val priceFocusRequester = remember { FocusRequester() }
 
     fun cancel() {
-        // The photo isn't attached to any sale yet — don't leave an orphan.
-        photoPath?.let { File(it).delete() }
+        // Nothing captured here is attached to a saved sale yet — clean up
+        // every file so a cancelled sale doesn't leave orphans on disk.
+        (cart.flatMap { it.photoPaths } + itemPhotoPaths + salePhotoPaths)
+            .forEach { File(it).delete() }
         onCancel()
     }
 
@@ -103,14 +113,20 @@ fun SaleEntryScreen(
         }
     }
 
-    fun currentDraft() =
-        DraftItem(sku = sku, quantity = quantity, priceText = priceText, note = itemNote)
+    fun currentDraft() = DraftItem(
+        sku = sku,
+        quantity = quantity,
+        priceText = priceText,
+        note = itemNote,
+        photoPaths = itemPhotoPaths
+    )
 
     fun clearItemFields() {
         sku = ""
         quantity = 1
         priceText = ""
         itemNote = ""
+        itemPhotoPaths = emptyList()
     }
 
     fun addCurrentToCart(): Boolean {
@@ -123,15 +139,23 @@ fun SaleEntryScreen(
 
     fun commitSale() {
         val draft = currentDraft()
-        val items = if (draft.isValid) cart + draft else cart.toList()
-        if (items.isEmpty()) return
-        onSave(items.map { it.toSaleItem() }, note.trim().ifBlank { null }, photoPath)
+        val drafts = if (draft.isValid) cart + draft else cart.toList()
+        if (drafts.isEmpty()) return
+        onSave(
+            drafts.map { it.toSaleItem() },
+            drafts.map { it.photoPaths },
+            note.trim().ifBlank { null },
+            salePhotoPaths,
+            cashReceivedText.toDoubleOrNull()
+        )
     }
 
     val canAddItem = currentDraft().isValid
     val canSave = cart.isNotEmpty() || canAddItem
     val cartTotal = cart.sumOf { it.subtotal } + (if (canAddItem) currentDraft().subtotal else 0.0)
     val itemCount = cart.size + if (canAddItem) 1 else 0
+    val cashReceived = cashReceivedText.toDoubleOrNull()
+    val changeDue = cashReceived?.let { it - cartTotal }
 
     // A large total asks for confirmation before saving (typo guard); small
     // everyday sales save straight through.
@@ -214,6 +238,15 @@ fun SaleEntryScreen(
                 modifier = Modifier.fillMaxWidth()
             )
 
+            Spacer(modifier = Modifier.height(8.dp))
+
+            MultiPhotoCaptureRow(
+                photoPaths = itemPhotoPaths,
+                onPhotosChanged = { itemPhotoPaths = it },
+                filePrefix = "sale_item",
+                label = "Photo of this card"
+            )
+
             Spacer(modifier = Modifier.height(12.dp))
 
             Row(
@@ -292,18 +325,51 @@ fun SaleEntryScreen(
                                         color = MaterialTheme.colorScheme.onSurfaceVariant
                                     )
                                 }
-}
+                                if (item.photoPaths.isNotEmpty()) {
+                                    Text(
+                                        "${item.photoPaths.size} photo${if (item.photoPaths.size == 1) "" else "s"}",
+                                        style = MaterialTheme.typography.bodySmall,
+                                        color = MaterialTheme.colorScheme.onSurfaceVariant
+                                    )
+                                }
+                            }
                             Text(
                                 formatCurrency(item.subtotal),
                                 style = MaterialTheme.typography.bodyLarge
                             )
-                            IconButton(onClick = { cart.removeAt(index) }) {
+                            IconButton(onClick = {
+                                item.photoPaths.forEach { File(it).delete() }
+                                cart.removeAt(index)
+                            }) {
                                 Icon(Icons.Filled.Close, contentDescription = "Remove item")
                             }
                         }
                     }
                 }
                 HorizontalDivider()
+            }
+
+            Spacer(modifier = Modifier.height(12.dp))
+
+            OutlinedTextField(
+                value = cashReceivedText,
+                onValueChange = { if (it.matches(MONEY_INPUT_REGEX)) cashReceivedText = it },
+                label = { Text("Cash received (optional)") },
+                prefix = { Text("$") },
+                singleLine = true,
+                keyboardOptions = KeyboardOptions(keyboardType = KeyboardType.Decimal),
+                modifier = Modifier.fillMaxWidth()
+            )
+            if (changeDue != null) {
+                Text(
+                    if (changeDue >= 0) "Change due ${formatCurrency(changeDue)}"
+                    else "Short ${formatCurrency(-changeDue)} — received less than the total",
+                    style = MaterialTheme.typography.bodyMedium,
+                    fontWeight = FontWeight.Bold,
+                    color = if (changeDue < 0) MaterialTheme.colorScheme.error
+                    else MaterialTheme.colorScheme.onSurfaceVariant,
+                    modifier = Modifier.padding(top = 4.dp)
+                )
             }
 
             Spacer(modifier = Modifier.height(12.dp))
@@ -318,11 +384,12 @@ fun SaleEntryScreen(
 
             Spacer(modifier = Modifier.height(12.dp))
 
-            PhotoCaptureRow(
-                photoPath = photoPath,
-                onPhotoChanged = { photoPath = it },
-                filePrefix = "sale",
-                deleteReplacedFiles = true
+            Text("Photos of the whole sale (optional)", style = MaterialTheme.typography.bodyMedium)
+            Spacer(modifier = Modifier.height(4.dp))
+            MultiPhotoCaptureRow(
+                photoPaths = salePhotoPaths,
+                onPhotosChanged = { salePhotoPaths = it },
+                filePrefix = "sale"
             )
         }
     }

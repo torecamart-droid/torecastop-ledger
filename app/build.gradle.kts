@@ -106,4 +106,7 @@ dependencies {
 
     // Runtime permission helper (camera)
     implementation(libs.accompanist.permissions)
+
+    // QR generation for the seller intake link — v1.3
+    implementation(libs.zxing.core)
 }

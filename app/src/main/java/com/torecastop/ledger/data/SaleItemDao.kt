@@ -7,8 +7,9 @@ import androidx.room.Query
 @Dao
 interface SaleItemDao {
 
+    /** Returns the generated ids, same order as [items] — used to attach photos. */
     @Insert
-    suspend fun insertAll(items: List<SaleItem>)
+    suspend fun insertAll(items: List<SaleItem>): List<Long>
 
     /** Removes every line of a sale — used when replacing items during an edit. */
     @Query("DELETE FROM sale_items WHERE saleId = :saleId")

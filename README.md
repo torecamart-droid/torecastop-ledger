@@ -51,8 +51,8 @@ Trade Feature Plan" brief:
 - **UI Tier 3** — "Add & scan next" rapid multi-card loop; photo thumbnail with
   safe retake; local-time (Adelaide) display and export formatting confirmed.
 
-**v1.3** — implemented (Room schema now **v4**; additive 3→4 migration keeps all
-data). This release adds:
+**v1.3** — implemented (Room schema now **v5**; additive 3→4→5 migrations keep
+all data). This release adds:
 
 - **Per-item notes**, for inventory / serial-number tracking. Today, notes
   live only at the transaction level (one per sale, one per trade) — too
@@ -126,11 +126,10 @@ data). This release adds:
     `isSystemInDarkTheme()`) currently loses the brand's Cloud/Mist/Ink
     identity that light mode has. Design a real dark surface derived from
     `Ink` instead of accepting the default. While touching the color scheme,
-    also pin an explicit brand `error` color: right now a trade's negative
-    value-added falls back to Material's default error color, which can read
-    too similarly to `primary` (Coral, itself a warm red) used for plain sale
-    totals — an explicit, distinct error color keeps "this trade lost value"
-    visually unambiguous from "here's a normal total."
+    also pin an explicit brand `error` color, distinct from `primary` (Coral,
+    itself a warm red) used for plain sale totals — used for a cash-count
+    shortfall and a sale that's short on change (both from this same v1.3
+    release), so those genuinely-bad numbers never read as just another total.
   - **Currency in a tabular/monospace font.** `Theme.kt` ships plain
     `Typography()` — the fonts its own comment names (Nunito/Inter/Space
     Mono) were never wired in (also flagged under **Notes** below). Rather
@@ -157,6 +156,57 @@ data). This release adds:
     inside the card. A subtle left-edge stripe or tonal tint on trade cards
     would make a long mixed feed scannable for "just the trades" without
     reading each card individually.
+
+**v1.3 revision** — a round of changes requested directly against a planning
+doc, folded into this same release before its first publish (schema v4→v5,
+additive, existing data kept):
+
+- **Trade value model simplified — market-value/margin calc scrapped.**
+  `TradeItem.tradeValue`/`costBasis` are renamed at the Kotlin level to
+  `saleCost`/`acquisitionCost` (`@ColumnInfo` mapping to the same columns, so
+  this alone needed no migration) — every card line now carries just one
+  plain dollar figure, no computed margin/value-swing/value-added headline.
+  `TradeWithItems` drops `margin`/`valueSwing`/`valueAdded` entirely; the live
+  balance card, the ledger row headline, the session totals header, the
+  pre-export summary, and `trades.csv` all show plain out/in/cash totals
+  instead (`unit_sale_cost` replaces `unit_value`; `unit_cost_basis`,
+  `value_swing`, `margin`, and `value_added` are all gone). `acquisitionCost`
+  itself went further, on later on-device review: it was briefly extended to
+  both directions (not just OUT-only), then dropped from the trade screen
+  entirely — the field stays on `TradeItem`/the `costBasis` column, deprecated
+  and always null, rather than forcing a schema change to remove a column
+  nothing had really used.
+- **Multiple photos per sale and per trade — whole-transaction and per-item.**
+  Replaces the old single `Sale.photoPath`/`Trade.photoPath` (kept as
+  deprecated columns so old rows aren't dropped; the migration copies any
+  existing single photo into the new tables). New `sale_photos`/`trade_photos`
+  tables, each row either whole-transaction (`saleItemId`/`tradeItemId` null)
+  or tied to one item/card line. `MultiPhotoCaptureRow` (replacing
+  `PhotoCaptureRow` everywhere except the single-shot cash-count photo) lets
+  the sale/trade entry screens and the sale edit dialog capture any number of
+  photos per line and per transaction; ledger rows show one thumbnail plus a
+  "+N" badge. Export bundles every photo into `photos/`, with `;`-joined
+  filename columns per row (`item_photos`, `sale_photos`/`trade_photos`).
+- **Cash-received / change-due prompt on a sale.** Optional `Sale.cashReceived`
+  column; an optional "Cash received" field on the sale entry (and edit)
+  screen computes change due live, shown on the row, in the pre-export
+  summary math is unaffected — it's a display-only convenience — and as new
+  `cash_received`/`change_due` columns in `sales.csv`.
+- **Seller contact fields on a trade.** Optional `customerPhone`/
+  `customerEmail` on `Trade`, entered on the trade screen, shown on the row,
+  exported as `customer_phone`/`customer_email` columns in `trades.csv`.
+- **QR code linking a seller to a saved trade.** From the planning doc: "any
+  seller that comes to our table" scans a QR code to fill in their own
+  details on a form the team hosts (Google Form or similar) — deliberately
+  **not** a live Forms/Sheets integration (too big a lift for a sideloaded,
+  offline-first app); the QR just encodes a URL with the trade's own id as a
+  reference code, and the form should ask the seller to copy that code in so
+  staff can match the response back by eye. `SellerIntakeForm.FORM_URL_TEMPLATE`
+  is the one thing to configure (a `{ref}` placeholder gets replaced with the
+  trade id) — until it's set, the "Show seller intake QR" button (visible only
+  once a trade is saved, since it needs a real id) doesn't appear. QR
+  generation is fully on-device (`zxing-core`, encoding only — no camera/scan
+  use), so nothing here touches the network.
 - Bump `versionCode`/`versionName` to 1.3 per the release convention.
 
 **Planned v1.4** — external integrations & multi-till workflow (bigger scope
@@ -217,19 +267,28 @@ torecastop-ledger/
         │   ├── LedgerApplication.kt    # shares one DB + repository app-wide
         │   ├── MainActivity.kt         # launches the Active Session screen
         │   ├── data/
-        │   │   ├── Session.kt          # entity — one selling event
-        │   │   ├── Sale.kt             # entity — one transaction (header)
+        │   │   ├── Session.kt          # entity — one selling event (+ label, float/count)
+        │   │   ├── Sale.kt             # entity — one transaction (header, cashReceived)
         │   │   ├── SaleItem.kt         # entity — one item line within a sale
-        │   │   ├── SaleWithItems.kt    # Room relation: a sale + its item lines
-        │   │   ├── Trade.kt            # entity — one card swap (header + cash on top)
+        │   │   ├── SalePhoto.kt        # entity — photo, whole-sale or one item line
+        │   │   ├── SaleWithItems.kt    # Room relation: a sale + its items + its photos
+        │   │   ├── Trade.kt            # entity — one card swap (header, cash, seller contact)
         │   │   ├── TradeItem.kt        # entity — one card line (OUT w/ SKU, IN w/ name)
-        │   │   ├── TradeWithItems.kt   # Room relation + value-added maths (margin/swing)
+        │   │   ├── TradePhoto.kt       # entity — photo, whole-trade or one card line
+        │   │   ├── TradeWithItems.kt   # Room relation: a trade + its items + its photos
+        │   │   ├── CashAdjustment.kt   # entity — a paid-out/cash-in log entry
         │   │   ├── SessionSummary.kt   # end-of-day numbers (pre-export review, history)
-        │   │   ├── SessionDao.kt / SaleDao.kt / SaleItemDao.kt / TradeDao.kt / TradeItemDao.kt
-        │   │   ├── LedgerDatabase.kt   # Room database (v4; additive 2→3, 3→4 migrations)
-        │   │   ├── LedgerRepository.kt # business rules; atomic multi-item writes
-        │   │   ├── PhotoStorage.kt     # per-sale/trade photos + capture-time compression
-        │   │   └── LedgerExporter.kt   # builds the sales.csv + trades.csv + photos zip
+        │   │   ├── SessionDao.kt / SaleDao.kt / SaleItemDao.kt / SalePhotoDao.kt /
+        │   │   │     TradeDao.kt / TradeItemDao.kt / TradePhotoDao.kt / CashAdjustmentDao.kt
+        │   │   ├── LedgerDatabase.kt   # Room database (v5; additive 2→3, 3→4, 4→5 migrations)
+        │   │   ├── LedgerRepository.kt # business rules; atomic multi-item + multi-photo writes
+        │   │   ├── PhotoStorage.kt     # photo capture target + capture-time compression
+        │   │   └── LedgerExporter.kt   # builds the sales.csv + trades.csv + cash.csv + photos zip
+        │   ├── intake/
+        │   │   ├── SellerIntakeForm.kt # configurable seller-intake form URL (per trade id)
+        │   │   └── QrCodeGenerator.kt  # on-device QR bitmap generation (encoding only)
+        │   ├── update/
+        │   │   └── UpdateChecker.kt    # network-optional check against a release manifest
         │   └── ui/
         │       ├── theme/              # brand palette + Material3 theme
         │       ├── scan/
@@ -238,13 +297,15 @@ torecastop-ledger/
         │           ├── ActiveSessionViewModel.kt # session + totals + events/undo + all actions
         │           ├── ActiveSessionScreen.kt    # totals, merged ledger, bottom buttons, menu
         │           ├── SaleEntryScreen.kt        # full-screen sale entry (cart + scan-next loop)
-        │           ├── TradeEntryScreen.kt       # full-screen trade entry/edit + live balance
+        │           ├── TradeEntryScreen.kt       # full-screen trade entry/edit + running totals
         │           ├── SessionHistoryScreen.kt   # closed-session list + read-only detail
+        │           ├── SessionDialogs.kt         # label/float/cash-log/close/intake-QR dialogs
         │           ├── ExportSummaryDialog.kt    # pre-export review of the day's numbers
         │           ├── LedgerRows.kt             # shared sale/trade cards for the feeds
         │           ├── LedgerEntry.kt            # merged newest-first sales+trades feed
-        │           ├── PhotoCaptureRow.kt        # shared add/retake/remove photo row
-        │           ├── SaleEditDialog.kt         # edit/add/remove items + note; delete sale
+        │           ├── PhotoCaptureRow.kt        # single add/retake/remove row (cash-count photo)
+        │           ├── MultiPhotoCaptureRow.kt   # any-number-of-photos row (sale/trade/item)
+        │           ├── SaleEditDialog.kt         # edit items/photos/note/cash; delete sale
         │           ├── DraftItem.kt              # in-progress sale item (cart/editor)
         │           ├── DraftTradeItem.kt         # in-progress trade line (entry form)
         │           └── Format.kt                 # shared AUD currency/time formatting
@@ -253,53 +314,64 @@ torecastop-ledger/
 
 The data layer enforces the confirmed decisions:
 - **one active session at a time**
-- **sessions auto-named from the open date** (e.g. "01 Jul 2026")
+- **sessions auto-named from the open date** (e.g. "01 Jul 2026"), with an
+  optional free-text show/event label alongside it
 - **timestamps stamped at save**
 - **a sale is a transaction with one or more item lines** — a `Sale` header
-  (note, photo, timestamp) plus N `SaleItem` lines (SKU, qty, price), written
-  atomically; no auto-merging across sales
-- **a trade mirrors that shape** — a `Trade` header (note, photo, timestamp,
-  cash amount + direction) plus N `TradeItem` lines (direction OUT/IN, SKU or
-  card name, qty, trade value, optional cost basis), written atomically.
-  Value added is derived at read time: margin over cost when every OUT line
-  has a cost basis, otherwise the value swing at market
+  (note, timestamp, optional cash-received) plus N `SaleItem` lines (SKU, qty,
+  price, optional note), written atomically; no auto-merging across sales.
+  Photos (any number, whole-sale or per-item) are a separate `SalePhoto` table
+  keyed by `saleId` with a nullable `saleItemId`.
+- **a trade mirrors that shape** — a `Trade` header (note, timestamp, cash
+  amount + direction, optional seller phone/email) plus N `TradeItem` lines
+  (direction OUT/IN, SKU or card name, qty, sale cost, optional note), written
+  atomically. `TradePhoto` mirrors `SalePhoto`. No margin/value-added
+  calculation — sale cost is recorded plainly, not combined into a derived
+  profit figure (scrapped in the v1.3 revision; see below).
 
 The Active Session screen sits on top of that:
 - On launch it resumes today's active session (or opens one) and shows big,
   sunlight-readable live totals — sales cash, items sold, and (once trades
-  exist) trade count, value added and net trade cash, kept separate from sales.
+  exist) trade count, out/in totals and net trade cash, kept separate from
+  sales.
 - Two bottom-anchored buttons choose what you're recording: **New Sale** and
   **New Trade** (thumb reach, one-handed).
 - A sale is a **cart of items**: enter a SKU — typed, or scanned from the
-  printed Code 128 label — with quantity and price, then **Add item** (or
-  **Add & scan next** to go straight back to the camera). One optional note and
-  one optional photo cover the whole sale. **Save sale** commits every line at
-  once (a single not-yet-added item is included automatically, so single-item
-  sales stay one-tap fast). A successful scan vibrates, beeps and flashes a
-  checkmark so it registers without looking.
+  printed Code 128 label — with quantity, price, and any photos for that
+  specific item, then **Add item** (or **Add & scan next** to go straight
+  back to the camera). An optional note, optional cash-received (with live
+  change-due), and any number of whole-sale photos round it out. **Save sale**
+  commits every line at once (a single not-yet-added item is included
+  automatically, so single-item sales stay one-tap fast). A successful scan
+  vibrates, beeps and flashes a checkmark so it registers without looking.
 - A trade has two asymmetric sides: **cards out** (your stock — scan or type
-  the SKU, optional cost basis) and **cards in** (the customer's — name +
-  value, no SKU until intake), plus optional **cash on top** either way. A live
-  balance card shows OUT vs IN + cash and the value-added headline before you
-  commit.
+  the SKU, sale cost, optional photos) and **cards in** (the customer's —
+  name, sale cost, no SKU until intake), plus optional **cash on top** either
+  way. A running-totals
+  card shows plain Out/In + cash before you commit — no computed
+  margin/value-added headline. Once a trade is saved, an optional **seller
+  intake QR** links back to it by id (see **v1.3 revision** below).
 - Every save shows a **"saved — Undo"** snackbar, and the just-saved entry is
   briefly highlighted in the ledger.
 - Tap any sale or trade to edit or delete it — while the session is active.
 - The overflow menu **exports** the session (after a review of the day's
-  numbers; `sales.csv` + `trades.csv` + `photos/` zipped and handed to the
-  Android share sheet), opens **Session history** (re-open past sessions
-  read-only and re-export their zips), or **closes** the session. After
-  closing, the screen offers to start a new one — keeping exactly one active
-  at a time.
+  numbers; `sales.csv` + `trades.csv` + `cash.csv` (when there's reconciliation
+  data) + `photos/` zipped and handed to the Android share sheet), opens
+  **Session history** (re-open past sessions read-only and re-export their
+  zips), or **closes** the session (with an optional drawer-count
+  reconciliation). After closing, the screen offers to start a new one —
+  keeping exactly one active at a time.
 
 Captured photos are **compressed on capture** (longest edge ≤ 1600 px, JPEG
 quality 75, EXIF orientation applied) to keep storage and exports small. Photos
 live under `filesDir/photos/`; the export zip lands in `cacheDir/exports/` — both
 declared in `res/xml/file_paths.xml` and shared through the app's FileProvider.
 `sales.csv` has one row per item with a `sale_id` column that groups the lines of
-each transaction. `trades.csv` (present when the session has trades) has one row
-per card line — direction, SKU/card name, values, optional cost basis — with the
-trade's cash, value swing, margin and headline value added repeated per row.
+each transaction, plus `item_photos`/`sale_photos` filename columns (`;`-joined
+when there's more than one). `trades.csv` (present when the session has trades)
+has one row per card line — direction, SKU/card name, sale cost — with the
+trade's cash and seller contact repeated per row; no value swing/margin/
+value-added or acquisition-cost columns.
 
 ## How to build & run
 
@@ -389,12 +461,14 @@ throwaway debug key: a phone can't upgrade between a debug and a release build
 without uninstalling first. Don't hand debug builds to the team.
 
 ## Notes
-- The Room database is **v4**. Every upgrade from v2 on is a **real, additive
+- The Room database is **v5**. Every upgrade from v2 on is a **real, additive
   migration** — 2→3 added the trade tables, 3→4 added per-item notes, the
-  session label + cash-reconciliation fields, and the `cash_adjustments` table;
-  existing sessions/sales/trades are kept. Only the ancient pre-multi-item **v1**
-  still falls back to a destructive wipe on upgrade (the deliberate clean-reset
-  choice from when v2 shipped).
+  session label + cash-reconciliation fields, and the `cash_adjustments` table,
+  4→5 added multi-photo (`sale_photos`/`trade_photos`), `Sale.cashReceived`,
+  and `Trade.customerPhone`/`customerEmail`; existing sessions/sales/trades are
+  kept throughout. Only the ancient pre-multi-item **v1** still falls back to a
+  destructive wipe on upgrade (the deliberate clean-reset choice from when v2
+  shipped).
 - Custom fonts (Nunito / Inter / Space Mono) are not yet bundled; the app uses
   Material3 default typography so it builds with no binary assets. Drop the font
   files into `res/font` and wire them into `Theme.kt` when they're ready.

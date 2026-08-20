@@ -10,9 +10,9 @@ import androidx.sqlite.db.SupportSQLiteDatabase
 @Database(
     entities = [
         Session::class, Sale::class, SaleItem::class, Trade::class, TradeItem::class,
-        CashAdjustment::class
+        CashAdjustment::class, SalePhoto::class, TradePhoto::class
     ],
-    version = 4,
+    version = 5,
     exportSchema = false
 )
 abstract class LedgerDatabase : RoomDatabase() {
@@ -23,6 +23,8 @@ abstract class LedgerDatabase : RoomDatabase() {
     abstract fun tradeDao(): TradeDao
     abstract fun tradeItemDao(): TradeItemDao
     abstract fun cashAdjustmentDao(): CashAdjustmentDao
+    abstract fun salePhotoDao(): SalePhotoDao
+    abstract fun tradePhotoDao(): TradePhotoDao
 
     companion object {
         @Volatile private var INSTANCE: LedgerDatabase? = null
@@ -96,6 +98,75 @@ abstract class LedgerDatabase : RoomDatabase() {
             }
         }
 
+        /**
+         * v5 is the v1.3 planning-doc revision — all additive, existing data
+         * kept. `tradeValue` is NOT touched here: it's renamed at the Kotlin
+         * level only (see [TradeItem.saleCost]) — same column, so no SQL is
+         * needed for that part. `costBasis` (→ [TradeItem.acquisitionCost])
+         * is likewise untouched — that field was later dropped from entry/
+         * display/export, but the column stays in the schema, just unused.
+         *  - sale_photos / trade_photos tables (multi-photo, whole + per-item)
+         *  - sales.cashReceived (cash-received / change-due prompt)
+         *  - trades.customerPhone / trades.customerEmail (seller contact)
+         */
+        private val MIGRATION_4_5 = object : Migration(4, 5) {
+            override fun migrate(db: SupportSQLiteDatabase) {
+                db.execSQL("ALTER TABLE `sales` ADD COLUMN `cashReceived` REAL")
+                db.execSQL("ALTER TABLE `trades` ADD COLUMN `customerPhone` TEXT")
+                db.execSQL("ALTER TABLE `trades` ADD COLUMN `customerEmail` TEXT")
+
+                db.execSQL(
+                    "CREATE TABLE IF NOT EXISTS `sale_photos` (" +
+                        "`id` INTEGER PRIMARY KEY AUTOINCREMENT NOT NULL, " +
+                        "`saleId` INTEGER NOT NULL, " +
+                        "`saleItemId` INTEGER, " +
+                        "`photoPath` TEXT NOT NULL, " +
+                        "`timestamp` INTEGER NOT NULL, " +
+                        "FOREIGN KEY(`saleId`) REFERENCES `sales`(`id`) " +
+                        "ON UPDATE NO ACTION ON DELETE CASCADE, " +
+                        "FOREIGN KEY(`saleItemId`) REFERENCES `sale_items`(`id`) " +
+                        "ON UPDATE NO ACTION ON DELETE CASCADE)"
+                )
+                db.execSQL(
+                    "CREATE INDEX IF NOT EXISTS `index_sale_photos_saleId` ON `sale_photos` (`saleId`)"
+                )
+                db.execSQL(
+                    "CREATE INDEX IF NOT EXISTS `index_sale_photos_saleItemId` ON `sale_photos` (`saleItemId`)"
+                )
+
+                db.execSQL(
+                    "CREATE TABLE IF NOT EXISTS `trade_photos` (" +
+                        "`id` INTEGER PRIMARY KEY AUTOINCREMENT NOT NULL, " +
+                        "`tradeId` INTEGER NOT NULL, " +
+                        "`tradeItemId` INTEGER, " +
+                        "`photoPath` TEXT NOT NULL, " +
+                        "`timestamp` INTEGER NOT NULL, " +
+                        "FOREIGN KEY(`tradeId`) REFERENCES `trades`(`id`) " +
+                        "ON UPDATE NO ACTION ON DELETE CASCADE, " +
+                        "FOREIGN KEY(`tradeItemId`) REFERENCES `trade_items`(`id`) " +
+                        "ON UPDATE NO ACTION ON DELETE CASCADE)"
+                )
+                db.execSQL(
+                    "CREATE INDEX IF NOT EXISTS `index_trade_photos_tradeId` ON `trade_photos` (`tradeId`)"
+                )
+                db.execSQL(
+                    "CREATE INDEX IF NOT EXISTS `index_trade_photos_tradeItemId` ON `trade_photos` (`tradeItemId`)"
+                )
+
+                // Carry forward any existing single sale/trade photo into the
+                // new whole-transaction (saleItemId/tradeItemId = NULL) shape,
+                // so nothing already captured is silently lost.
+                db.execSQL(
+                    "INSERT INTO sale_photos (saleId, saleItemId, photoPath, timestamp) " +
+                        "SELECT id, NULL, photoPath, timestamp FROM sales WHERE photoPath IS NOT NULL"
+                )
+                db.execSQL(
+                    "INSERT INTO trade_photos (tradeId, tradeItemId, photoPath, timestamp) " +
+                        "SELECT id, NULL, photoPath, timestamp FROM trades WHERE photoPath IS NOT NULL"
+                )
+            }
+        }
+
         fun get(context: Context): LedgerDatabase =
             INSTANCE ?: synchronized(this) {
                 INSTANCE ?: Room.databaseBuilder(
@@ -103,9 +174,10 @@ abstract class LedgerDatabase : RoomDatabase() {
                     LedgerDatabase::class.java,
                     "torecastop_ledger.db"
                 )
-                    // v2→v3 (trade tables) and v3→v4 (v1.3 notes/cash batch)
-                    // both migrate in place, keeping data.
-                    .addMigrations(MIGRATION_2_3, MIGRATION_3_4)
+                    // v2→v3 (trade tables), v3→v4 (v1.3 notes/cash batch), and
+                    // v4→v5 (v1.3 revision: multi-photo, cash-received, seller
+                    // contact) all migrate in place, keeping data.
+                    .addMigrations(MIGRATION_2_3, MIGRATION_3_4, MIGRATION_4_5)
                     // Only the pre-multi-item v1 is destructive on upgrade
                     // (confirmed clean-reset choice when v2 shipped).
                     .fallbackToDestructiveMigration()

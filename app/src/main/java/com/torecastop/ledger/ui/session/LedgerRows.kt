@@ -1,7 +1,9 @@
 package com.torecastop.ledger.ui.session
 
 import androidx.compose.animation.animateColorAsState
+import androidx.compose.foundation.background
 import androidx.compose.foundation.clickable
+import androidx.compose.foundation.layout.Box
 import androidx.compose.foundation.layout.Column
 import androidx.compose.foundation.layout.Row
 import androidx.compose.foundation.layout.Spacer
@@ -57,15 +59,34 @@ internal fun SaleRow(
                 .padding(horizontal = 16.dp, vertical = 12.dp),
             verticalAlignment = Alignment.CenterVertically
         ) {
-            sale.photoPath?.let { path ->
-                AsyncImage(
-                    model = File(path),
-                    contentDescription = "Sale photo",
-                    contentScale = ContentScale.Crop,
-                    modifier = Modifier
-                        .size(44.dp)
-                        .clip(RoundedCornerShape(8.dp))
-                )
+            // One representative thumbnail (whole-sale or item, whichever was
+            // captured first) plus a "+N" badge when there's more than one —
+            // any number of photos can be attached (v1.3 revision).
+            saleWithItems.photos.firstOrNull()?.let { first ->
+                Box {
+                    AsyncImage(
+                        model = File(first.photoPath),
+                        contentDescription = "Sale photo",
+                        contentScale = ContentScale.Crop,
+                        modifier = Modifier
+                            .size(44.dp)
+                            .clip(RoundedCornerShape(8.dp))
+                    )
+                    if (saleWithItems.photos.size > 1) {
+                        Text(
+                            "+${saleWithItems.photos.size - 1}",
+                            style = MaterialTheme.typography.labelSmall,
+                            color = MaterialTheme.colorScheme.onSurface,
+                            modifier = Modifier
+                                .align(Alignment.BottomEnd)
+                                .background(
+                                    MaterialTheme.colorScheme.surface,
+                                    RoundedCornerShape(topStart = 4.dp)
+                                )
+                                .padding(horizontal = 3.dp)
+                        )
+                    }
+                }
                 Spacer(modifier = Modifier.width(12.dp))
             }
             Column(modifier = Modifier.weight(1f)) {
@@ -116,6 +137,13 @@ internal fun SaleRow(
                     style = MaterialTheme.typography.titleMedium.tabularFigures(),
                     fontWeight = FontWeight.Bold
                 )
+                saleWithItems.changeDue?.let { change ->
+                    Text(
+                        "change ${formatCurrency(change)}",
+                        style = MaterialTheme.typography.bodySmall,
+                        color = MaterialTheme.colorScheme.onSurfaceVariant
+                    )
+                }
                 Text(
                     formatTime(sale.timestamp),
                     style = MaterialTheme.typography.bodySmall,
@@ -140,15 +168,33 @@ internal fun TradeRow(
                 .padding(horizontal = 16.dp, vertical = 12.dp),
             verticalAlignment = Alignment.CenterVertically
         ) {
-            trade.photoPath?.let { path ->
-                AsyncImage(
-                    model = File(path),
-                    contentDescription = "Trade photo",
-                    contentScale = ContentScale.Crop,
-                    modifier = Modifier
-                        .size(44.dp)
-                        .clip(RoundedCornerShape(8.dp))
-                )
+            // One representative thumbnail plus a "+N" badge — any number of
+            // photos can be attached, whole-trade or per-card. (v1.3 revision)
+            tradeWithItems.photos.firstOrNull()?.let { first ->
+                Box {
+                    AsyncImage(
+                        model = File(first.photoPath),
+                        contentDescription = "Trade photo",
+                        contentScale = ContentScale.Crop,
+                        modifier = Modifier
+                            .size(44.dp)
+                            .clip(RoundedCornerShape(8.dp))
+                    )
+                    if (tradeWithItems.photos.size > 1) {
+                        Text(
+                            "+${tradeWithItems.photos.size - 1}",
+                            style = MaterialTheme.typography.labelSmall,
+                            color = MaterialTheme.colorScheme.onSurface,
+                            modifier = Modifier
+                                .align(Alignment.BottomEnd)
+                                .background(
+                                    MaterialTheme.colorScheme.surface,
+                                    RoundedCornerShape(topStart = 4.dp)
+                                )
+                                .padding(horizontal = 3.dp)
+                        )
+                    }
+                }
                 Spacer(modifier = Modifier.width(12.dp))
             }
             Column(modifier = Modifier.weight(1f)) {
@@ -168,7 +214,7 @@ internal fun TradeRow(
                 }
                 tradeWithItems.outItems.forEach { item ->
                     Text(
-                        "Out · ${item.quantity} × ${item.label} · ${formatCurrency(item.tradeValue)}",
+                        "Out · ${item.quantity} × ${item.label} · ${formatCurrency(item.saleCost)}",
                         style = MaterialTheme.typography.bodySmall,
                         color = MaterialTheme.colorScheme.onSurfaceVariant
                     )
@@ -176,7 +222,7 @@ internal fun TradeRow(
                 }
                 tradeWithItems.inItems.forEach { item ->
                     Text(
-                        "In · ${item.quantity} × ${item.label} · ${formatCurrency(item.tradeValue)}",
+                        "In · ${item.quantity} × ${item.label} · ${formatCurrency(item.saleCost)}",
                         style = MaterialTheme.typography.bodySmall,
                         color = MaterialTheme.colorScheme.onSurfaceVariant
                     )
@@ -189,25 +235,35 @@ internal fun TradeRow(
                         color = MaterialTheme.colorScheme.onSurfaceVariant
                     )
                 }
+                val contact = listOfNotNull(trade.customerPhone, trade.customerEmail)
+                if (contact.isNotEmpty()) {
+                    Text(
+                        contact.joinToString(" · "),
+                        style = MaterialTheme.typography.bodySmall,
+                        color = MaterialTheme.colorScheme.onSurfaceVariant
+                    )
+                }
                 trade.note?.let { NoteLine(it) }
             }
             Column(horizontalAlignment = Alignment.End) {
-                val valueAdded = tradeWithItems.valueAdded
-                Text(
-                    formatSignedCurrency(valueAdded),
-                    style = MaterialTheme.typography.titleMedium.tabularFigures(),
-                    fontWeight = FontWeight.Bold,
-                    color = when {
-                        valueAdded > 0.0049 -> MaterialTheme.colorScheme.secondary
-                        valueAdded < -0.0049 -> MaterialTheme.colorScheme.error
-                        else -> MaterialTheme.colorScheme.onSurface
-                    }
-                )
-                Text(
-                    if (tradeWithItems.margin != null) "margin" else "swing",
-                    style = MaterialTheme.typography.labelSmall,
-                    color = MaterialTheme.colorScheme.onSurfaceVariant
-                )
+                // No value-added/margin calc (v1.3 revision) — the headline is
+                // whichever plain recorded figure is most informative: net
+                // cash when there is any, otherwise the card count.
+                if (trade.cashAmount > 0) {
+                    Text(
+                        formatSignedCurrency(tradeWithItems.cashReceived),
+                        style = MaterialTheme.typography.titleMedium.tabularFigures(),
+                        fontWeight = FontWeight.Bold,
+                        color = MaterialTheme.colorScheme.secondary
+                    )
+                } else {
+                    Text(
+                        "${tradeWithItems.itemQuantity} card" +
+                            (if (tradeWithItems.itemQuantity == 1) "" else "s"),
+                        style = MaterialTheme.typography.titleMedium,
+                        fontWeight = FontWeight.Bold
+                    )
+                }
                 Text(
                     formatTime(trade.timestamp),
                     style = MaterialTheme.typography.bodySmall,

@@ -117,7 +117,7 @@ fun ActiveSessionScreen(viewModel: ActiveSessionViewModel) {
                 is LedgerEvent.SaleSaved ->
                     "Sale saved · ${formatCurrency(event.total)}"
                 is LedgerEvent.TradeSaved ->
-                    "Trade saved · value added ${formatSignedCurrency(event.valueAdded)}"
+                    "Trade saved · out ${formatCurrency(event.outTotal)} / in ${formatCurrency(event.inTotal)}"
             }
             val result = snackbarHostState.showSnackbar(
                 message = message,
@@ -146,8 +146,8 @@ fun ActiveSessionScreen(viewModel: ActiveSessionViewModel) {
     when (val p = panel) {
         Panel.NewSale -> {
             SaleEntryScreen(
-                onSave = { items, note, photoPath ->
-                    viewModel.addSale(items, note, photoPath)
+                onSave = { items, itemPhotoPaths, note, salePhotoPaths, cashReceived ->
+                    viewModel.addSale(items, itemPhotoPaths, note, salePhotoPaths, cashReceived)
                     panel = Panel.Ledger
                 },
                 onCancel = { panel = Panel.Ledger }
@@ -157,16 +157,18 @@ fun ActiveSessionScreen(viewModel: ActiveSessionViewModel) {
         is Panel.TradeForm -> {
             TradeEntryScreen(
                 existing = p.existing,
-                onSaveNew = { items, cashAmount, cashDirection, note, photoPath ->
-                    viewModel.addTrade(items, cashAmount, cashDirection, note, photoPath)
+                onSaveNew = { items, itemPhotoPaths, cashAmount, cashDirection, note, tradePhotoPaths, phone, email ->
+                    viewModel.addTrade(
+                        items, itemPhotoPaths, cashAmount, cashDirection, note, tradePhotoPaths, phone, email
+                    )
                     panel = Panel.Ledger
                 },
-                onSaveEdit = { trade, items ->
-                    viewModel.updateTrade(trade, items)
+                onSaveEdit = { trade, items, itemPhotoPaths, tradePhotoPaths ->
+                    viewModel.updateTrade(trade, items, itemPhotoPaths, tradePhotoPaths)
                     panel = Panel.Ledger
                 },
                 onDelete = { trade ->
-                    viewModel.deleteTrade(trade)
+                    viewModel.deleteTrade(trade, p.existing?.photos?.map { it.photoPath } ?: emptyList())
                     panel = Panel.Ledger
                 },
                 onCancel = { panel = Panel.Ledger }
@@ -198,8 +200,14 @@ fun ActiveSessionScreen(viewModel: ActiveSessionViewModel) {
     editingSale?.let { saleWithItems ->
         SaleEditDialog(
             saleWithItems = saleWithItems,
-            onSave = { sale, items -> viewModel.updateSale(sale, items); editingSale = null },
-            onDelete = { viewModel.deleteSale(it); editingSale = null },
+            onSave = { sale, items, itemPhotoPaths, salePhotoPaths ->
+                viewModel.updateSale(sale, items, itemPhotoPaths, salePhotoPaths)
+                editingSale = null
+            },
+            onDelete = {
+                viewModel.deleteSale(it, saleWithItems.photos.map { p -> p.photoPath })
+                editingSale = null
+            },
             onDismiss = { editingSale = null }
         )
     }
@@ -547,7 +555,9 @@ private fun SessionTotalsHeader(
                 }
             }
             if (trades.isNotEmpty()) {
-                val tradeValueAdded = trades.sumOf { it.valueAdded }
+                // Plain recorded totals only — no margin/value-added calc (v1.3 revision).
+                val tradeOutTotal = trades.sumOf { it.outTotal }
+                val tradeInTotal = trades.sumOf { it.inTotal }
                 val tradeCash = trades.sumOf { it.cashReceived }
                 HorizontalDivider(modifier = Modifier.padding(vertical = 12.dp))
                 Row(
@@ -561,14 +571,9 @@ private fun SessionTotalsHeader(
                         fontWeight = FontWeight.Medium
                     )
                     Text(
-                        "value added ${formatSignedCurrency(tradeValueAdded)}",
+                        "out ${formatCurrency(tradeOutTotal)} / in ${formatCurrency(tradeInTotal)}",
                         style = MaterialTheme.typography.bodyLarge,
-                        fontWeight = FontWeight.Bold,
-                        color = when {
-                            tradeValueAdded > 0.0049 -> MaterialTheme.colorScheme.secondary
-                            tradeValueAdded < -0.0049 -> MaterialTheme.colorScheme.error
-                            else -> MaterialTheme.colorScheme.onSurface
-                        }
+                        fontWeight = FontWeight.Bold
                     )
                     Text(
                         "cash ${formatSignedCurrency(tradeCash)}",

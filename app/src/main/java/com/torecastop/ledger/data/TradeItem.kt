@@ -1,5 +1,6 @@
 package com.torecastop.ledger.data
 
+import androidx.room.ColumnInfo
 import androidx.room.Entity
 import androidx.room.ForeignKey
 import androidx.room.Ignore
@@ -11,9 +12,12 @@ import androidx.room.PrimaryKey
  *
  * The two sides are not symmetrical:
  *  - [DIRECTION_OUT] lines are the store's stock — they carry a [sku]
- *    (scanned from the printed label) and may carry an optional [costBasis].
+ *    (scanned from the printed label).
  *  - [DIRECTION_IN] lines are the customer's cards — no SKU yet, identified by
  *    [cardName]; a real SKU is assigned later during the normal intake flow.
+ *
+ * Each line carries a plain [saleCost] — what the card is valued at in this
+ * deal. No market-value/margin maths (scrapped in the v1.3 revision).
  *
  * Deleting the parent trade cascades to its items.
  */
@@ -39,19 +43,31 @@ data class TradeItem(
     /** Free-text card name — the identifier for IN lines. */
     val cardName: String? = null,
     val quantity: Int = 1,
-    /** Per-unit value the card is counted as in the deal, in dollars. */
-    val tradeValue: Double,
-    /** Per-unit cost to the store, in dollars. Optional, OUT lines only. */
-    val costBasis: Double? = null,
+    /**
+     * Per-unit value the card is counted as in this deal, in dollars.
+     * Column kept as `tradeValue` — same data, renamed at the Kotlin level
+     * only, so no migration is needed for the rename itself.
+     */
+    @ColumnInfo(name = "tradeValue")
+    val saleCost: Double,
+    /**
+     * Deprecated — acquisition cost was removed from trade entry/display/
+     * export after user feedback; the column (`costBasis`, dating to v2)
+     * stays in the schema unused rather than forcing a DROP COLUMN
+     * migration for a field nothing ever wrote much data into. Always null
+     * on new/edited trades.
+     */
+    @ColumnInfo(name = "costBasis")
+    val acquisitionCost: Double? = null,
     /**
      * Optional per-line note — e.g. a serial number or condition detail for a
      * specific card. Distinct from the trade-level [Trade.note]. (v1.3)
      */
     val note: String? = null
 ) {
-    /** Line total = quantity × per-unit trade value. Not stored; computed on read. */
+    /** Line total = quantity × per-unit sale cost. Not stored; computed on read. */
     @get:Ignore
-    val lineValue: Double get() = quantity * tradeValue
+    val lineValue: Double get() = quantity * saleCost
 
     /** Display identifier: card name when present, otherwise the SKU. */
     @get:Ignore

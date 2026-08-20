@@ -57,9 +57,11 @@ object LedgerExporter {
                 zip.closeEntry()
             }
 
+            // Any number of photos per sale/trade — whole-transaction and
+            // per-item/per-card alike (v1.3 revision).
             val photoPaths =
-                sales.mapNotNull { it.sale.photoPath } +
-                    trades.mapNotNull { it.trade.photoPath } +
+                sales.flatMap { it.photos.map { p -> p.photoPath } } +
+                    trades.flatMap { it.photos.map { p -> p.photoPath } } +
                     listOfNotNull(session.cashCountPhotoPath)
             photoPaths.forEach { path ->
                 val photo = File(path)
@@ -116,12 +118,19 @@ object LedgerExporter {
     private fun buildSalesCsv(sales: List<SaleWithItems>): String {
         val timestampFormat = timestampFormat()
         val sb = StringBuilder()
-        sb.append("sale_id,timestamp,sku,quantity,unit_price,line_subtotal,item_note,note,photo\n")
+        sb.append(
+            "sale_id,timestamp,sku,quantity,unit_price,line_subtotal,item_note,item_photos," +
+                "cash_received,change_due,note,sale_photos\n"
+        )
         sales.forEach { saleWithItems ->
             val sale = saleWithItems.sale
             val timestamp = timestampFormat.format(Date(sale.timestamp))
-            val photoName = sale.photoPath?.let { File(it).name } ?: ""
+            val salePhotoNames = saleWithItems.salePhotos.joinToString(";") { File(it.photoPath).name }
+            val cashReceivedText = sale.cashReceived?.let { money(it) } ?: ""
+            val changeDueText = saleWithItems.changeDue?.let { money(it) } ?: ""
             saleWithItems.items.forEach { item ->
+                val itemPhotoNames =
+                    saleWithItems.photosFor(item.id).joinToString(";") { File(it.photoPath).name }
                 sb.append(sale.id).append(',')
                 sb.append(csv(timestamp)).append(',')
                 sb.append(csv(item.sku)).append(',')
@@ -129,49 +138,56 @@ object LedgerExporter {
                 sb.append(money(item.price)).append(',')
                 sb.append(money(item.subtotal)).append(',')
                 sb.append(csv(item.note ?: "")).append(',')
+                sb.append(csv(itemPhotoNames)).append(',')
+                sb.append(cashReceivedText).append(',')
+                sb.append(changeDueText).append(',')
                 sb.append(csv(sale.note ?: "")).append(',')
-                sb.append(csv(photoName)).append('\n')
+                sb.append(csv(salePhotoNames)).append('\n')
             }
         }
         return sb.toString()
     }
 
     /**
-     * One row per trade item; the trade-level fields (cash, value swing,
-     * margin, headline value added, note, photo) repeat on each of its rows,
-     * mirroring how sales.csv repeats note/photo.
+     * One row per trade item; the trade-level fields (cash, note, photos)
+     * repeat on each of its rows, mirroring how sales.csv repeats note/photos.
+     * No value-swing/margin/value-added columns, and no acquisition-cost
+     * column (both removed in the v1.3 revision) — just the plain sale cost
+     * recorded per line. Any number of photos per card/trade are joined with
+     * `;` in their column.
      */
     private fun buildTradesCsv(trades: List<TradeWithItems>): String {
         val timestampFormat = timestampFormat()
         val sb = StringBuilder()
         sb.append(
-            "trade_id,timestamp,direction,sku,card_name,quantity,unit_value,line_value," +
-                "unit_cost_basis,item_note,cash_direction,cash_amount,value_swing,margin," +
-                "value_added,note,photo\n"
+            "trade_id,timestamp,direction,sku,card_name,quantity,unit_sale_cost,line_value," +
+                "item_note,item_photos,cash_direction,cash_amount," +
+                "customer_phone,customer_email,note,trade_photos\n"
         )
         trades.forEach { tradeWithItems ->
             val trade = tradeWithItems.trade
             val timestamp = timestampFormat.format(Date(trade.timestamp))
-            val photoName = trade.photoPath?.let { File(it).name } ?: ""
-            val marginText = tradeWithItems.margin?.let { money(it) } ?: ""
+            val tradePhotoNames =
+                tradeWithItems.tradePhotos.joinToString(";") { File(it.photoPath).name }
             tradeWithItems.items.forEach { item ->
+                val itemPhotoNames =
+                    tradeWithItems.photosFor(item.id).joinToString(";") { File(it.photoPath).name }
                 sb.append(trade.id).append(',')
                 sb.append(csv(timestamp)).append(',')
                 sb.append(csv(item.direction)).append(',')
                 sb.append(csv(item.sku ?: "")).append(',')
                 sb.append(csv(item.cardName ?: "")).append(',')
                 sb.append(item.quantity).append(',')
-                sb.append(money(item.tradeValue)).append(',')
+                sb.append(money(item.saleCost)).append(',')
                 sb.append(money(item.lineValue)).append(',')
-                sb.append(item.costBasis?.let { money(it) } ?: "").append(',')
                 sb.append(csv(item.note ?: "")).append(',')
+                sb.append(csv(itemPhotoNames)).append(',')
                 sb.append(csv(trade.cashDirection)).append(',')
                 sb.append(money(trade.cashAmount)).append(',')
-                sb.append(money(tradeWithItems.valueSwing)).append(',')
-                sb.append(marginText).append(',')
-                sb.append(money(tradeWithItems.valueAdded)).append(',')
+                sb.append(csv(trade.customerPhone ?: "")).append(',')
+                sb.append(csv(trade.customerEmail ?: "")).append(',')
                 sb.append(csv(trade.note ?: "")).append(',')
-                sb.append(csv(photoName)).append('\n')
+                sb.append(csv(tradePhotoNames)).append('\n')
             }
         }
         return sb.toString()

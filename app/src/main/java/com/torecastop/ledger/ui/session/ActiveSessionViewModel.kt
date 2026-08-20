@@ -39,7 +39,7 @@ import java.io.File
 /** One-shot UI events: drive the "saved — Undo" snackbars. */
 sealed interface LedgerEvent {
     data class SaleSaved(val total: Double) : LedgerEvent
-    data class TradeSaved(val valueAdded: Double) : LedgerEvent
+    data class TradeSaved(val outTotal: Double, val inTotal: Double) : LedgerEvent
 }
 
 /** Everything the read-only history detail screen needs, loaded one-shot. */
@@ -108,7 +108,7 @@ class ActiveSessionViewModel(private val repository: LedgerRepository) : ViewMod
     val updateAvailable: StateFlow<UpdateInfo?> = _updateAvailable.asStateFlow()
 
     /** The most recent save, so the snackbar's Undo can take it back. */
-    private data class LastSaved(val isTrade: Boolean, val id: Long, val photoPath: String?)
+    private data class LastSaved(val isTrade: Boolean, val id: Long, val photoPaths: List<String>)
     private var lastSaved: LastSaved? = null
 
     init {
@@ -127,46 +127,82 @@ class ActiveSessionViewModel(private val repository: LedgerRepository) : ViewMod
 
     // --- Sales ---
 
-    fun addSale(items: List<SaleItem>, note: String?, photoPath: String?) {
+    /**
+     * [itemPhotoPaths] is parallel to [items] — photos captured for that
+     * specific line. [salePhotoPaths] cover the sale as a whole. (v1.3 revision)
+     */
+    fun addSale(
+        items: List<SaleItem>,
+        itemPhotoPaths: List<List<String>>,
+        note: String?,
+        salePhotoPaths: List<String>,
+        cashReceived: Double? = null
+    ) {
         val sessionId = session.value?.id ?: return
         if (items.isEmpty()) return
         viewModelScope.launch {
-            val saleId = repository.addSale(sessionId, items, note, photoPath)
-            lastSaved = LastSaved(isTrade = false, id = saleId, photoPath = photoPath)
+            val saleId = repository.addSale(
+                sessionId, items, itemPhotoPaths, note, salePhotoPaths, cashReceived
+            )
+            lastSaved = LastSaved(
+                isTrade = false,
+                id = saleId,
+                photoPaths = itemPhotoPaths.flatten() + salePhotoPaths
+            )
             _events.send(LedgerEvent.SaleSaved(items.sumOf { it.quantity * it.price }))
             flashHighlight("sale-$saleId")
         }
     }
 
-    fun updateSale(sale: Sale, items: List<SaleItem>) {
+    fun updateSale(
+        sale: Sale,
+        items: List<SaleItem>,
+        itemPhotoPaths: List<List<String>> = emptyList(),
+        salePhotoPaths: List<String> = emptyList()
+    ) {
         if (items.isEmpty()) return
-        viewModelScope.launch { repository.updateSale(sale, items) }
+        viewModelScope.launch {
+            repository.updateSale(sale, items, itemPhotoPaths, salePhotoPaths)
+        }
     }
 
-    fun deleteSale(sale: Sale) {
+    /** [photoPaths] are every photo (whole-sale + per-item) so they're cleaned up too. */
+    fun deleteSale(sale: Sale, photoPaths: List<String> = emptyList()) {
         viewModelScope.launch {
             repository.deleteSale(sale)
-            deletePhotoFile(sale.photoPath)
+            deletePhotoFiles(photoPaths)
         }
     }
 
     // --- Trades ---
 
+    /**
+     * [itemPhotoPaths] is parallel to [items] — photos captured for that
+     * specific card. [tradePhotoPaths] cover the trade as a whole. (v1.3 revision)
+     */
     fun addTrade(
         items: List<TradeItem>,
+        itemPhotoPaths: List<List<String>>,
         cashAmount: Double,
         cashDirection: String,
         note: String?,
-        photoPath: String?
+        tradePhotoPaths: List<String>,
+        customerPhone: String? = null,
+        customerEmail: String? = null
     ) {
         val sessionId = session.value?.id ?: return
         if (items.isEmpty()) return
         viewModelScope.launch {
             val tradeId = repository.addTrade(
-                sessionId, items, cashAmount, cashDirection, note, photoPath
+                sessionId, items, itemPhotoPaths, cashAmount, cashDirection, note,
+                tradePhotoPaths, customerPhone, customerEmail
             )
-            lastSaved = LastSaved(isTrade = true, id = tradeId, photoPath = photoPath)
-            // Headline number for the snackbar, same maths the row will show.
+            lastSaved = LastSaved(
+                isTrade = true,
+                id = tradeId,
+                photoPaths = itemPhotoPaths.flatten() + tradePhotoPaths
+            )
+            // Totals for the snackbar, same figures the row will show.
             val preview = TradeWithItems(
                 trade = Trade(
                     sessionId = sessionId,
@@ -176,20 +212,28 @@ class ActiveSessionViewModel(private val repository: LedgerRepository) : ViewMod
                 ),
                 items = items
             )
-            _events.send(LedgerEvent.TradeSaved(preview.valueAdded))
+            _events.send(LedgerEvent.TradeSaved(preview.outTotal, preview.inTotal))
             flashHighlight("trade-$tradeId")
         }
     }
 
-    fun updateTrade(trade: Trade, items: List<TradeItem>) {
+    fun updateTrade(
+        trade: Trade,
+        items: List<TradeItem>,
+        itemPhotoPaths: List<List<String>> = emptyList(),
+        tradePhotoPaths: List<String> = emptyList()
+    ) {
         if (items.isEmpty()) return
-        viewModelScope.launch { repository.updateTrade(trade, items) }
+        viewModelScope.launch {
+            repository.updateTrade(trade, items, itemPhotoPaths, tradePhotoPaths)
+        }
     }
 
-    fun deleteTrade(trade: Trade) {
+    /** [photoPaths] are every photo (whole-trade + per-card) so they're cleaned up too. */
+    fun deleteTrade(trade: Trade, photoPaths: List<String> = emptyList()) {
         viewModelScope.launch {
             repository.deleteTradeById(trade.id)
-            deletePhotoFile(trade.photoPath)
+            deletePhotoFiles(photoPaths.ifEmpty { listOfNotNull(trade.photoPath) })
         }
     }
 
@@ -202,7 +246,7 @@ class ActiveSessionViewModel(private val repository: LedgerRepository) : ViewMod
         viewModelScope.launch {
             if (last.isTrade) repository.deleteTradeById(last.id)
             else repository.deleteSaleById(last.id)
-            deletePhotoFile(last.photoPath)
+            deletePhotoFiles(last.photoPaths)
         }
     }
 
@@ -303,9 +347,9 @@ class ActiveSessionViewModel(private val repository: LedgerRepository) : ViewMod
         }
     }
 
-    private suspend fun deletePhotoFile(path: String?) {
-        path ?: return
-        withContext(Dispatchers.IO) { File(path).delete() }
+    private suspend fun deletePhotoFiles(paths: List<String>) {
+        if (paths.isEmpty()) return
+        withContext(Dispatchers.IO) { paths.forEach { File(it).delete() } }
     }
 
     companion object {

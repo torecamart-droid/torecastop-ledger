@@ -37,7 +37,8 @@ fun ExportSummaryDialog(
                 if (summary.tradeCount > 0) {
                     HorizontalDivider(modifier = Modifier.padding(vertical = 8.dp))
                     SummaryRow("Trades", summary.tradeCount.toString())
-                    SummaryRow("Value added", formatSignedCurrency(summary.tradeValueAdded), bold = true)
+                    SummaryRow("Out total", formatCurrency(summary.tradeOutTotal))
+                    SummaryRow("In total", formatCurrency(summary.tradeInTotal))
                     SummaryRow("Cash in trades", formatSignedCurrency(summary.tradeCash))
                 }
                 if (summary.hasReconciliation) {
