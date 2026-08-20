@@ -164,15 +164,18 @@ additive, existing data kept):
 - **Trade value model simplified — market-value/margin calc scrapped.**
   `TradeItem.tradeValue`/`costBasis` are renamed at the Kotlin level to
   `saleCost`/`acquisitionCost` (`@ColumnInfo` mapping to the same columns, so
-  this alone needed no migration) — every card line now carries just two
-  plain dollar figures, no computed margin/value-swing/value-added headline.
-  `acquisitionCost` is no longer OUT-only; an IN card can carry one too.
+  this alone needed no migration) — every card line now carries just one
+  plain dollar figure, no computed margin/value-swing/value-added headline.
   `TradeWithItems` drops `margin`/`valueSwing`/`valueAdded` entirely; the live
   balance card, the ledger row headline, the session totals header, the
   pre-export summary, and `trades.csv` all show plain out/in/cash totals
-  instead (`unit_sale_cost`/`unit_acquisition_cost` columns replace
-  `unit_value`/`unit_cost_basis`; the `value_swing`/`margin`/`value_added`
-  columns are gone).
+  instead (`unit_sale_cost` replaces `unit_value`; `unit_cost_basis`,
+  `value_swing`, `margin`, and `value_added` are all gone). `acquisitionCost`
+  itself went further, on later on-device review: it was briefly extended to
+  both directions (not just OUT-only), then dropped from the trade screen
+  entirely — the field stays on `TradeItem`/the `costBasis` column, deprecated
+  and always null, rather than forcing a schema change to remove a column
+  nothing had really used.
 - **Multiple photos per sale and per trade — whole-transaction and per-item.**
   Replaces the old single `Sale.photoPath`/`Trade.photoPath` (kept as
   deprecated columns so old rows aren't dropped; the migration copies any
@@ -321,11 +324,10 @@ The data layer enforces the confirmed decisions:
   keyed by `saleId` with a nullable `saleItemId`.
 - **a trade mirrors that shape** — a `Trade` header (note, timestamp, cash
   amount + direction, optional seller phone/email) plus N `TradeItem` lines
-  (direction OUT/IN, SKU or card name, qty, sale cost, optional acquisition
-  cost, optional note), written atomically. `TradePhoto` mirrors `SalePhoto`.
-  No margin/value-added calculation — sale cost and acquisition cost are
-  recorded plainly, not combined into a derived profit figure (scrapped in
-  the v1.3 revision; see below).
+  (direction OUT/IN, SKU or card name, qty, sale cost, optional note), written
+  atomically. `TradePhoto` mirrors `SalePhoto`. No margin/value-added
+  calculation — sale cost is recorded plainly, not combined into a derived
+  profit figure (scrapped in the v1.3 revision; see below).
 
 The Active Session screen sits on top of that:
 - On launch it resumes today's active session (or opens one) and shows big,
@@ -343,9 +345,9 @@ The Active Session screen sits on top of that:
   automatically, so single-item sales stay one-tap fast). A successful scan
   vibrates, beeps and flashes a checkmark so it registers without looking.
 - A trade has two asymmetric sides: **cards out** (your stock — scan or type
-  the SKU, sale cost, optional acquisition cost, optional photos) and **cards
-  in** (the customer's — name, sale cost, optional acquisition cost, no SKU
-  until intake), plus optional **cash on top** either way. A running-totals
+  the SKU, sale cost, optional photos) and **cards in** (the customer's —
+  name, sale cost, no SKU until intake), plus optional **cash on top** either
+  way. A running-totals
   card shows plain Out/In + cash before you commit — no computed
   margin/value-added headline. Once a trade is saved, an optional **seller
   intake QR** links back to it by id (see **v1.3 revision** below).
@@ -367,9 +369,9 @@ declared in `res/xml/file_paths.xml` and shared through the app's FileProvider.
 `sales.csv` has one row per item with a `sale_id` column that groups the lines of
 each transaction, plus `item_photos`/`sale_photos` filename columns (`;`-joined
 when there's more than one). `trades.csv` (present when the session has trades)
-has one row per card line — direction, SKU/card name, sale cost, acquisition
-cost — with the trade's cash and seller contact repeated per row; no value
-swing/margin/value-added columns.
+has one row per card line — direction, SKU/card name, sale cost — with the
+trade's cash and seller contact repeated per row; no value swing/margin/
+value-added or acquisition-cost columns.
 
 ## How to build & run
 

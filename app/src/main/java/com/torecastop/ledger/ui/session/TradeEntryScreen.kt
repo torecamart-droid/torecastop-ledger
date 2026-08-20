@@ -110,7 +110,6 @@ fun TradeEntryScreen(
     var outSku by remember { mutableStateOf("") }
     var outQuantity by remember { mutableStateOf(1) }
     var outSaleCostText by remember { mutableStateOf("") }
-    var outAcquisitionCostText by remember { mutableStateOf("") }
     var outNote by remember { mutableStateOf("") }
     var outPhotoPaths by remember { mutableStateOf<List<String>>(emptyList()) }
 
@@ -118,7 +117,6 @@ fun TradeEntryScreen(
     var inName by remember { mutableStateOf("") }
     var inQuantity by remember { mutableStateOf(1) }
     var inSaleCostText by remember { mutableStateOf("") }
-    var inAcquisitionCostText by remember { mutableStateOf("") }
     var inNote by remember { mutableStateOf("") }
     var inPhotoPaths by remember { mutableStateOf<List<String>>(emptyList()) }
 
@@ -169,7 +167,6 @@ fun TradeEntryScreen(
         sku = outSku,
         quantity = outQuantity,
         saleCostText = outSaleCostText,
-        acquisitionCostText = outAcquisitionCostText,
         note = outNote,
         photoPaths = outPhotoPaths
     )
@@ -179,7 +176,6 @@ fun TradeEntryScreen(
         cardName = inName,
         quantity = inQuantity,
         saleCostText = inSaleCostText,
-        acquisitionCostText = inAcquisitionCostText,
         note = inNote,
         photoPaths = inPhotoPaths
     )
@@ -187,14 +183,14 @@ fun TradeEntryScreen(
     fun addPendingOut() {
         if (!pendingOut().isValid) return
         outItems.add(pendingOut())
-        outSku = ""; outQuantity = 1; outSaleCostText = ""; outAcquisitionCostText = ""
+        outSku = ""; outQuantity = 1; outSaleCostText = ""
         outNote = ""; outPhotoPaths = emptyList()
     }
 
     fun addPendingIn() {
         if (!pendingIn().isValid) return
         inItems.add(pendingIn())
-        inName = ""; inQuantity = 1; inSaleCostText = ""; inAcquisitionCostText = ""
+        inName = ""; inQuantity = 1; inSaleCostText = ""
         inNote = ""; inPhotoPaths = emptyList()
     }
 
@@ -394,19 +390,6 @@ fun TradeEntryScreen(
                     keyboardOptions = KeyboardOptions(keyboardType = KeyboardType.Decimal),
                     modifier = Modifier.weight(1f)
                 )
-                Spacer(modifier = Modifier.width(8.dp))
-                OutlinedTextField(
-                    value = outAcquisitionCostText,
-                    onValueChange = {
-                        if (it.matches(MONEY_INPUT_REGEX)) outAcquisitionCostText = it
-                    },
-                    label = { Text("Acq. cost") },
-                    placeholder = { Text("opt.") },
-                    prefix = { Text("$") },
-                    singleLine = true,
-                    keyboardOptions = KeyboardOptions(keyboardType = KeyboardType.Decimal),
-                    modifier = Modifier.weight(1f)
-                )
                 Spacer(modifier = Modifier.width(4.dp))
                 IconButton(onClick = { addPendingOut() }, enabled = pendingOut().isValid) {
                     Icon(Icons.Filled.Add, contentDescription = "Add outgoing card")
@@ -467,19 +450,6 @@ fun TradeEntryScreen(
                     value = inSaleCostText,
                     onValueChange = { if (it.matches(MONEY_INPUT_REGEX)) inSaleCostText = it },
                     label = { Text("Sale cost") },
-                    prefix = { Text("$") },
-                    singleLine = true,
-                    keyboardOptions = KeyboardOptions(keyboardType = KeyboardType.Decimal),
-                    modifier = Modifier.weight(1f)
-                )
-                Spacer(modifier = Modifier.width(8.dp))
-                OutlinedTextField(
-                    value = inAcquisitionCostText,
-                    onValueChange = {
-                        if (it.matches(MONEY_INPUT_REGEX)) inAcquisitionCostText = it
-                    },
-                    label = { Text("Acq. cost") },
-                    placeholder = { Text("opt.") },
                     prefix = { Text("$") },
                     singleLine = true,
                     keyboardOptions = KeyboardOptions(keyboardType = KeyboardType.Decimal),
@@ -615,8 +585,7 @@ private fun TradeDraftRow(item: DraftTradeItem, onRemove: () -> Unit) {
                 fontWeight = FontWeight.Medium
             )
             Text(
-                "${formatCurrency(item.saleCost ?: 0.0)} each" +
-                    (item.acquisitionCost?.let { " · acq. ${formatCurrency(it)}" } ?: ""),
+                "${formatCurrency(item.saleCost ?: 0.0)} each",
                 style = MaterialTheme.typography.bodySmall,
                 color = MaterialTheme.colorScheme.onSurfaceVariant
             )

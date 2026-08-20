@@ -16,11 +16,8 @@ import androidx.room.PrimaryKey
  *  - [DIRECTION_IN] lines are the customer's cards — no SKU yet, identified by
  *    [cardName]; a real SKU is assigned later during the normal intake flow.
  *
- * Every line carries two plain dollar figures — no market-value/margin maths
- * (that calculation was scrapped in this v1.3 revision, per the planning doc):
- *  - [saleCost]: what the card is valued at in this deal.
- *  - [acquisitionCost]: what the store paid (or is now paying, for an IN
- *    card) to acquire it. Always optional — recorded when known.
+ * Each line carries a plain [saleCost] — what the card is valued at in this
+ * deal. No market-value/margin maths (scrapped in the v1.3 revision).
  *
  * Deleting the parent trade cascades to its items.
  */
@@ -54,10 +51,11 @@ data class TradeItem(
     @ColumnInfo(name = "tradeValue")
     val saleCost: Double,
     /**
-     * Per-unit cost to the store, in dollars. Optional on both directions —
-     * for OUT lines it's what the store originally paid; for an IN line it's
-     * what the store is now paying to acquire it (often equal to [saleCost],
-     * but kept separate in case they differ). Column kept as `costBasis`.
+     * Deprecated — acquisition cost was removed from trade entry/display/
+     * export after user feedback; the column (`costBasis`, dating to v2)
+     * stays in the schema unused rather than forcing a DROP COLUMN
+     * migration for a field nothing ever wrote much data into. Always null
+     * on new/edited trades.
      */
     @ColumnInfo(name = "costBasis")
     val acquisitionCost: Double? = null,

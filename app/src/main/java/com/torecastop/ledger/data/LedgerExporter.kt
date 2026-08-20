@@ -151,16 +151,17 @@ object LedgerExporter {
     /**
      * One row per trade item; the trade-level fields (cash, note, photos)
      * repeat on each of its rows, mirroring how sales.csv repeats note/photos.
-     * No value-swing/margin/value-added columns (v1.3 revision) — just the
-     * plain sale cost and acquisition cost recorded per line. Any number of
-     * photos per card/trade are joined with `;` in their column.
+     * No value-swing/margin/value-added columns, and no acquisition-cost
+     * column (both removed in the v1.3 revision) — just the plain sale cost
+     * recorded per line. Any number of photos per card/trade are joined with
+     * `;` in their column.
      */
     private fun buildTradesCsv(trades: List<TradeWithItems>): String {
         val timestampFormat = timestampFormat()
         val sb = StringBuilder()
         sb.append(
             "trade_id,timestamp,direction,sku,card_name,quantity,unit_sale_cost,line_value," +
-                "unit_acquisition_cost,item_note,item_photos,cash_direction,cash_amount," +
+                "item_note,item_photos,cash_direction,cash_amount," +
                 "customer_phone,customer_email,note,trade_photos\n"
         )
         trades.forEach { tradeWithItems ->
@@ -179,7 +180,6 @@ object LedgerExporter {
                 sb.append(item.quantity).append(',')
                 sb.append(money(item.saleCost)).append(',')
                 sb.append(money(item.lineValue)).append(',')
-                sb.append(item.acquisitionCost?.let { money(it) } ?: "").append(',')
                 sb.append(csv(item.note ?: "")).append(',')
                 sb.append(csv(itemPhotoNames)).append(',')
                 sb.append(csv(trade.cashDirection)).append(',')

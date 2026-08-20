@@ -100,9 +100,11 @@ abstract class LedgerDatabase : RoomDatabase() {
 
         /**
          * v5 is the v1.3 planning-doc revision — all additive, existing data
-         * kept. `tradeValue`/`costBasis` are NOT touched here: they're renamed
-         * at the Kotlin level only (see [TradeItem.saleCost]/[TradeItem.acquisitionCost]
-         * — same columns, so no SQL is needed for that part.
+         * kept. `tradeValue` is NOT touched here: it's renamed at the Kotlin
+         * level only (see [TradeItem.saleCost]) — same column, so no SQL is
+         * needed for that part. `costBasis` (→ [TradeItem.acquisitionCost])
+         * is likewise untouched — that field was later dropped from entry/
+         * display/export, but the column stays in the schema, just unused.
          *  - sale_photos / trade_photos tables (multi-photo, whole + per-item)
          *  - sales.cashReceived (cash-received / change-due prompt)
          *  - trades.customerPhone / trades.customerEmail (seller contact)

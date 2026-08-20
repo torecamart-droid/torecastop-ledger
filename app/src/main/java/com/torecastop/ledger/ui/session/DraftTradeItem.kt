@@ -8,8 +8,9 @@ import java.util.Locale
  * are kept as text so partial input (e.g. "1.") is preserved while typing.
  *
  * OUT lines are identified by SKU (scanned or typed); IN lines are identified
- * by card name (decision T5). Both sides carry a sale cost (required) and an
- * optional acquisition cost — no market-value/margin maths (v1.3 revision).
+ * by card name (decision T5). Both sides carry just a sale cost — no
+ * acquisition cost (removed from entry/display/export), no market-value/
+ * margin maths (v1.3 revision).
  */
 data class DraftTradeItem(
     val direction: String,
@@ -17,7 +18,6 @@ data class DraftTradeItem(
     val cardName: String = "",
     val quantity: Int = 1,
     val saleCostText: String = "",
-    val acquisitionCostText: String = "",
     /** Optional per-line note — serial number, condition, etc. (v1.3) */
     val note: String = "",
     /**
@@ -28,7 +28,6 @@ data class DraftTradeItem(
     val photoPaths: List<String> = emptyList()
 ) {
     val saleCost: Double? get() = saleCostText.toDoubleOrNull()
-    val acquisitionCost: Double? get() = acquisitionCostText.toDoubleOrNull()
 
     val isValid: Boolean
         get() {
@@ -52,7 +51,6 @@ data class DraftTradeItem(
             cardName = cardName.trim().ifBlank { null },
             quantity = quantity,
             saleCost = saleCost ?: 0.0,
-            acquisitionCost = acquisitionCost,
             note = note.trim().ifBlank { null }
         )
 
@@ -64,8 +62,6 @@ data class DraftTradeItem(
                 cardName = item.cardName ?: "",
                 quantity = item.quantity,
                 saleCostText = String.format(Locale.US, "%.2f", item.saleCost),
-                acquisitionCostText =
-                    item.acquisitionCost?.let { String.format(Locale.US, "%.2f", it) } ?: "",
                 note = item.note ?: "",
                 photoPaths = photoPaths
             )
