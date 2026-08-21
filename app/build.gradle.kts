@@ -26,8 +26,8 @@ android {
         applicationId = "com.torecastop.ledger"
         minSdk = 29          // Android 10 — safe floor for the team's phones
         targetSdk = 35       // Android 15; bump as newer stable releases land
-        versionCode = 4
-        versionName = "1.3"  // bump both on every internal release
+        versionCode = 5
+        versionName = "1.4"  // bump both on every internal release
     }
 
     signingConfigs {

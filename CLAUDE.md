@@ -10,11 +10,13 @@ confirm quantity/price, save, repeat; export the day's session as a zip
 (CSV + photos). Internal tool, sideloaded — not on the Play Store, no backend,
 no tests directory exists yet.
 
-**Current status: v1.3 is shipped** — merged to `main`, tagged as a public
-GitHub Release with a signed `app-release.apk` attached, installed on the
-owner's real phone. The in-app update checker is live (see below). Anything
-past this point is v1.4+ and not yet started as of this writing — update this
-line when that changes.
+**Current status: v1.4 is shipped** — merged to `main`, tagged as a public
+GitHub Release with a signed `app-release.apk` attached. This release is the
+customer contact-intake QR round-trip (see "Customer contact-intake QR"
+below); the other originally-planned v1.4 item, multi-till session
+consolidation, did **not** ship in this release — it's still mid-development
+on an unmerged branch, unverified. Update this line, and split the version
+history below if needed, once that lands too.
 
 ## Build & run
 
