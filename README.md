@@ -29,7 +29,9 @@ compression on capture, and the release pipeline (signing + R8 + unbundled
 barcode model).
 
 **v1.2** adds the trade feature and the UI round from the "UI Improvements &
-Trade Feature Plan" brief:
+Trade Feature Plan" brief. ⚠️ *Historical record — the value-added/margin
+maths and per-card cost basis described here were **removed** in the v1.3
+revision (see below). Decisions T1 and T2 no longer hold.*
 
 - **Trades** — record two-sided card swaps: cards OUT of stock (scanned by SKU,
   optional per-card cost basis) vs cards IN from the customer (manual name +
@@ -51,8 +53,11 @@ Trade Feature Plan" brief:
 - **UI Tier 3** — "Add & scan next" rapid multi-card loop; photo thumbnail with
   safe retake; local-time (Adelaide) display and export formatting confirmed.
 
-**v1.3** — implemented (Room schema now **v5**; additive 3→4→5 migrations keep
-all data). This release adds:
+**v1.3** — ✅ **shipped** (Room schema now **v5**; additive 3→4→5 migrations keep
+all data). Merged to `main`, published as GitHub Release
+[`v1.3`](https://github.com/torecamart-droid/torecastop-ledger/releases/tag/v1.3)
+with a signed `app-release.apk` attached — the first release distributed this
+way, and the first signed with the current keystore. This release adds:
 
 - **Per-item notes**, for inventory / serial-number tracking. Today, notes
   live only at the transaction level (one per sale, one per trade) — too
@@ -225,8 +230,8 @@ than v1.3 — network-dependent and/or cross-device, so kept separate):
   inline warning ("Not found in Shopify — check the scan") but never blocks
   the save; a recognized one can show the matched product title next to the
   SKU field as a positive double-check. Needs a Shopify Admin API access
-  token stored on-device, plus the same `android.permission.INTERNET` the
-  update-checker above needs (one manifest change covers both v1.4 features).
+  token stored on-device. (`android.permission.INTERNET` is already in the
+  manifest as of v1.3, for the update checker — no manifest change needed.)
 - **Multi-till session consolidation.** The team runs the app on two phones
   during the one session/show — each phone has its own independent local
   database, so each opens its own same-day session (e.g. two unrelated
@@ -262,7 +267,7 @@ torecastop-ledger/
 └── app/
     ├── build.gradle.kts                # module config, minSdk 29 / target 35
     └── src/main/
-        ├── AndroidManifest.xml         # camera permission, IMAGE_CAPTURE query, FileProvider
+        ├── AndroidManifest.xml         # CAMERA/VIBRATE/INTERNET, IMAGE_CAPTURE query, FileProvider
         ├── java/com/torecastop/ledger/
         │   ├── LedgerApplication.kt    # shares one DB + repository app-wide
         │   ├── MainActivity.kt         # launches the Active Session screen
@@ -399,9 +404,16 @@ The distributable is a signed release APK (~5 MB) — one file anyone can be sen
 and tap to install. No Play Store involved.
 
 ### Build a release
+macOS (JDK bundled with Android Studio):
 ```
 JAVA_HOME="/Applications/Android Studio.app/Contents/jbr/Contents/Home" \
   ./gradlew :app:assembleRelease
+```
+Windows (standalone JDK 17 + SDK command-line tools, no Android Studio):
+```
+export JAVA_HOME="/c/Program Files/Eclipse Adoptium/jdk-17.0.19.10-hotspot"
+export ANDROID_HOME="/c/Users/<you>/AppData/Local/Android/Sdk"
+./gradlew.bat :app:assembleRelease
 ```
 Output: `app/build/outputs/apk/release/app-release.apk`.
 
@@ -410,7 +422,8 @@ Before each new release, bump `versionCode` (and `versionName`) in
 
 The release build is:
 - **Signed** with the project keystore, so each new version installs directly
-  over the previous one — no uninstall, data kept.
+  over the previous one — no uninstall, data kept. (True only between builds
+  signed with the *same* key — see the keystore note below.)
 - **Shrunk by R8 + resource shrinking** (`proguard-rules.pro` holds the only
   custom rule — readable stack traces).
 - **Small (~5 MB)** because the barcode model is *unbundled*: it comes from
@@ -427,15 +440,28 @@ somewhere safe (password manager + a second copy). If they're lost, the team
 must uninstall/reinstall to take future updates (losing on-device session data);
 if they leak, someone else can sign updates that install over the real app.
 
+> ⚠️ **This already happened once.** The original keystore (used for v1.1 and
+> earlier) was lost, so the key shipped from **v1.3 onward is a new one**. A
+> phone still running a build signed with the *old* key cannot take a v1.3+
+> update in place — it must **uninstall first**, which wipes that phone's
+> local session data. **Export any unexported sessions before doing that.**
+> From v1.3 on, as long as this current keystore is preserved, updates install
+> in place normally. Losing it again means repeating that whole exercise.
+
 ### Getting the APK onto phones
-1. Send `app-release.apk` by any channel — Drive, email, USB, a group chat.
+Since v1.3 the APK is published to **GitHub Releases** — that's what the
+in-app update banner links to, so it's the canonical channel:
+
+1. Point the phone at
+   [releases/latest](https://github.com/torecamart-droid/torecastop-ledger/releases/latest)
+   and download `app-release.apk` (or send the file directly — Drive, USB, a
+   group chat all still work).
 2. On the phone: open the file → allow "install unknown apps" for whatever app
    opened it (one-time) → tap **Install**.
-3. Updates: send the new APK, open, install — it upgrades in place.
+3. Updates: same again, and it upgrades in place — keeping data — provided both
+   builds share the current keystore (see the warning above).
 
-If passing files around gets old, **Firebase App Distribution** (free) or a
-hosted link/QR (e.g. GitHub Releases) adds versioning and a proper installer
-flow. An **App Bundle (`.aab`)** is Play-Store-only — for file sharing, always
+An **App Bundle (`.aab`)** is Play-Store-only — for file sharing, always
 distribute an APK.
 
 ### Publishing an update (in-app update check)
@@ -471,7 +497,9 @@ without uninstalling first. Don't hand debug builds to the team.
   shipped).
 - Custom fonts (Nunito / Inter / Space Mono) are not yet bundled; the app uses
   Material3 default typography so it builds with no binary assets. Drop the font
-  files into `res/font` and wire them into `Theme.kt` when they're ready.
+  files into `res/font` and wire them into `Theme.kt` when they're ready. In the
+  meantime currency totals get fixed-width digits via the default font's
+  `tnum` feature — see `tabularFigures()` in `ui/session/Format.kt`.
 - Version numbers in `libs.versions.toml` are recent known-good releases;
   Android Studio may suggest newer ones on sync — accepting them is fine.
 - `minSdk 29` (Android 10) is a safe floor for the team's phones and supports
