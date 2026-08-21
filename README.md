@@ -215,9 +215,12 @@ additive, existing data kept):
 - Bump `versionCode`/`versionName` to 1.3 per the release convention.
 
 **Planned v1.4** — external integrations & multi-till workflow (bigger scope
-than v1.3 — network-dependent and/or cross-device, so kept separate):
+than v1.3 — network-dependent and/or cross-device, so kept separate). The
+Shopify item below is on hold; multi-till consolidation is not:
 
-- **Shopify SKU lookup, to double-check faulty scans.** Read-only — not
+- **Shopify SKU lookup, to double-check faulty scans.** ⏸️ **On hold** — Dan
+  asked to hold off on this one for now (2026-08-21), reason not recorded.
+  Don't start building it without checking in first. Read-only — not
   inventory sync. The team already runs Shopify plus a separate inventory
   system for stock; this app should stay a ledger, not a second source of
   truth for stock levels. The goal is narrower: catch a misread barcode or a
