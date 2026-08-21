@@ -46,7 +46,17 @@ data class Trade(
     /** Optional seller/customer phone number, for follow-up. (v1.3) */
     val customerPhone: String? = null,
     /** Optional seller/customer email, for follow-up. (v1.3) */
-    val customerEmail: String? = null
+    val customerEmail: String? = null,
+    /** Optional seller/customer full name, captured manually or via customer self-serve intake. (v1.4) */
+    val customerName: String? = null,
+    /**
+     * Optional seller/customer address, as a single free-text line — either a
+     * customer-selected address-lookup result or their own typed text, or a
+     * hand-edited mix of both. No structured sub-fields (street/suburb/
+     * postcode): nothing else in this app queries or normalizes addresses.
+     * (v1.4)
+     */
+    val customerAddress: String? = null
 ) {
     companion object {
         const val CASH_STORE_RECEIVES = "store_receives"

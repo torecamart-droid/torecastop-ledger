@@ -187,15 +187,17 @@ class ActiveSessionViewModel(private val repository: LedgerRepository) : ViewMod
         cashDirection: String,
         note: String?,
         tradePhotoPaths: List<String>,
+        customerName: String? = null,
         customerPhone: String? = null,
-        customerEmail: String? = null
+        customerEmail: String? = null,
+        customerAddress: String? = null
     ) {
         val sessionId = session.value?.id ?: return
         if (items.isEmpty()) return
         viewModelScope.launch {
             val tradeId = repository.addTrade(
                 sessionId, items, itemPhotoPaths, cashAmount, cashDirection, note,
-                tradePhotoPaths, customerPhone, customerEmail
+                tradePhotoPaths, customerName, customerPhone, customerEmail, customerAddress
             )
             lastSaved = LastSaved(
                 isTrade = true,

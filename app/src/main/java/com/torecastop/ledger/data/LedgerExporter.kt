@@ -162,7 +162,7 @@ object LedgerExporter {
         sb.append(
             "trade_id,timestamp,direction,sku,card_name,quantity,unit_sale_cost,line_value," +
                 "item_note,item_photos,cash_direction,cash_amount," +
-                "customer_phone,customer_email,note,trade_photos\n"
+                "customer_name,customer_phone,customer_email,customer_address,note,trade_photos\n"
         )
         trades.forEach { tradeWithItems ->
             val trade = tradeWithItems.trade
@@ -184,8 +184,10 @@ object LedgerExporter {
                 sb.append(csv(itemPhotoNames)).append(',')
                 sb.append(csv(trade.cashDirection)).append(',')
                 sb.append(money(trade.cashAmount)).append(',')
+                sb.append(csv(trade.customerName ?: "")).append(',')
                 sb.append(csv(trade.customerPhone ?: "")).append(',')
                 sb.append(csv(trade.customerEmail ?: "")).append(',')
+                sb.append(csv(trade.customerAddress ?: "")).append(',')
                 sb.append(csv(trade.note ?: "")).append(',')
                 sb.append(csv(tradePhotoNames)).append('\n')
             }

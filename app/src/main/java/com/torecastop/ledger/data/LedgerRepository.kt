@@ -196,8 +196,10 @@ class LedgerRepository(private val db: LedgerDatabase) {
         cashDirection: String,
         note: String?,
         tradePhotoPaths: List<String> = emptyList(),
+        customerName: String? = null,
         customerPhone: String? = null,
-        customerEmail: String? = null
+        customerEmail: String? = null,
+        customerAddress: String? = null
     ): Long = db.withTransaction {
         val tradeId = tradeDao.insert(
             Trade(
@@ -206,8 +208,10 @@ class LedgerRepository(private val db: LedgerDatabase) {
                 timestamp = System.currentTimeMillis(),
                 cashAmount = cashAmount,
                 cashDirection = cashDirection,
+                customerName = customerName?.ifBlank { null },
                 customerPhone = customerPhone?.ifBlank { null },
-                customerEmail = customerEmail?.ifBlank { null }
+                customerEmail = customerEmail?.ifBlank { null },
+                customerAddress = customerAddress?.ifBlank { null }
             )
         )
         val itemIds = tradeItemDao.insertAll(items.map { it.copy(id = 0, tradeId = tradeId) })

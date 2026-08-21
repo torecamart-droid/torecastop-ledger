@@ -8,7 +8,8 @@ import com.google.zxing.qrcode.QRCodeWriter
 /** Renders a string as a black-on-white QR code bitmap — encoding only, no camera. */
 object QrCodeGenerator {
 
-    fun generate(content: String, sizePx: Int = 512): Bitmap {
+    /** Null if [content] is too large to fit in a QR code's max capacity. */
+    fun generate(content: String, sizePx: Int = 512): Bitmap? = runCatching {
         val matrix = QRCodeWriter().encode(content, BarcodeFormat.QR_CODE, sizePx, sizePx)
         val bitmap = Bitmap.createBitmap(sizePx, sizePx, Bitmap.Config.RGB_565)
         for (x in 0 until sizePx) {
@@ -16,6 +17,6 @@ object QrCodeGenerator {
                 bitmap.setPixel(x, y, if (matrix[x, y]) Color.BLACK else Color.WHITE)
             }
         }
-        return bitmap
-    }
+        bitmap
+    }.getOrNull()
 }

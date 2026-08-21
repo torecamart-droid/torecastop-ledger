@@ -59,8 +59,8 @@ gradlew.bat ...                   # Windows equivalent
 shared `LedgerDatabase` + `LedgerRepository` instance lives on
 `LedgerApplication` (`LedgerApplication.kt`) and is handed to
 `ActiveSessionViewModel` via a manual `ViewModelProvider.Factory` — there's no
-DI framework. Two small extra packages: `intake/` (seller-intake QR
-generation) and `update/` (in-app update check).
+DI framework. Two small extra packages: `intake/` (customer contact-intake QR
+round-trip) and `update/` (in-app update check).
 
 **`LedgerRepository` is the single point of business rules** — read it before
 changing behavior, not just the DAOs:
@@ -95,13 +95,19 @@ changing behavior, not just the DAOs:
   aren't a sale/trade (paid-out / cash-in log). `SessionSummary.expectedCash`
   / `.cashVariance` derive the reconciliation math — both are computed, not
   stored.
-- **Seller intake QR** (`intake/SellerIntakeForm.kt` + `QrCodeGenerator.kt`):
-  generates an on-device QR (zxing-core, encoding only, no network) linking a
-  seller to one saved trade by id. Deliberately **not** a live Forms/Sheets
-  integration — the form should ask the seller to copy the reference code in,
-  and staff match it back by eye. Button only appears once
-  `SellerIntakeForm.FORM_URL_TEMPLATE` is configured (currently blank/off) and
-  the trade has been saved (needs a real id).
+- **Customer contact-intake QR** (`intake/CustomerIntakeQr.kt` +
+  `QrCodeGenerator.kt`, v1.4): replaces the old, never-configured
+  seller-intake design. Staff shows a QR (on-device generation via
+  zxing-core, no network) linking to a small static form
+  (`docs/intake.html`, GitHub Pages) that the *customer* fills in on their
+  *own* phone; that page renders their answers back as a second QR, with no
+  server involved at either end. Staff scans that back in via the same
+  `BarcodeScannerScreen` used for SKUs (now also decoding QR). A client-side
+  nonce — not a persisted trade id — correlates the two QRs, so this works
+  before a trade is ever saved, in both new-trade and edit flows. A scanned
+  response only overwrites `customerPhone`/`customerEmail` when non-blank,
+  and a stale/unrecognized scan is rejected with a clear message rather than
+  silently misattributing one customer's details to another trade.
 - **In-app update check** (`update/UpdateChecker.kt`): network-optional poll
   of `update-manifest.json` on `main` at app start; shows a dismissible
   banner when the manifest's `versionCode` is ahead of the installed build.
@@ -140,10 +146,12 @@ Everywhere else (sale/trade, whole-transaction and per-item) uses
 `MultiPhotoCaptureRow.kt`, which supports any number of photos.
 
 **Barcode scanning** (`ui/scan/BarcodeScannerScreen.kt`): CameraX + ML Kit,
-reading the Code 128 SKU labels the (separate) Label Generator tool prints. A
-successful scan triggers vibration + beep + a checkmark overlay
-(`VIBRATE` permission in the manifest) — keep all three in sync if touching
-scan feedback.
+reading Code 128 (the SKU labels the separate Label Generator tool prints)
+and QR (customer contact-intake responses, v1.4). `title`/
+`permissionRationale` parameters let a second use of this same screen show
+copy matching what's actually being scanned. A successful scan triggers
+vibration + beep + a checkmark overlay (`VIBRATE` permission in the
+manifest) — keep all three in sync if touching scan feedback.
 
 **Export** (`LedgerExporter.kt`): builds `sales.csv`, `trades.csv` (present
 only when the session has trades), `cash.csv` (present only when there's

@@ -12,7 +12,7 @@ import androidx.sqlite.db.SupportSQLiteDatabase
         Session::class, Sale::class, SaleItem::class, Trade::class, TradeItem::class,
         CashAdjustment::class, SalePhoto::class, TradePhoto::class
     ],
-    version = 5,
+    version = 6,
     exportSchema = false
 )
 abstract class LedgerDatabase : RoomDatabase() {
@@ -167,6 +167,18 @@ abstract class LedgerDatabase : RoomDatabase() {
             }
         }
 
+        /**
+         * v6 adds full name and a free-text address to customer contact
+         * capture (v1.4 self-serve intake) — additive, existing data kept.
+         *  - trades.customerName / trades.customerAddress
+         */
+        private val MIGRATION_5_6 = object : Migration(5, 6) {
+            override fun migrate(db: SupportSQLiteDatabase) {
+                db.execSQL("ALTER TABLE `trades` ADD COLUMN `customerName` TEXT")
+                db.execSQL("ALTER TABLE `trades` ADD COLUMN `customerAddress` TEXT")
+            }
+        }
+
         fun get(context: Context): LedgerDatabase =
             INSTANCE ?: synchronized(this) {
                 INSTANCE ?: Room.databaseBuilder(
@@ -174,10 +186,11 @@ abstract class LedgerDatabase : RoomDatabase() {
                     LedgerDatabase::class.java,
                     "torecastop_ledger.db"
                 )
-                    // v2→v3 (trade tables), v3→v4 (v1.3 notes/cash batch), and
+                    // v2→v3 (trade tables), v3→v4 (v1.3 notes/cash batch),
                     // v4→v5 (v1.3 revision: multi-photo, cash-received, seller
-                    // contact) all migrate in place, keeping data.
-                    .addMigrations(MIGRATION_2_3, MIGRATION_3_4, MIGRATION_4_5)
+                    // contact), and v5→v6 (v1.4: customer name/address) all
+                    // migrate in place, keeping data.
+                    .addMigrations(MIGRATION_2_3, MIGRATION_3_4, MIGRATION_4_5, MIGRATION_5_6)
                     // Only the pre-multi-item v1 is destructive on upgrade
                     // (confirmed clean-reset choice when v2 shipped).
                     .fallbackToDestructiveMigration()

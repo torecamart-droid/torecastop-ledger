@@ -38,6 +38,7 @@ import androidx.compose.ui.platform.LocalClipboardManager
 import androidx.compose.ui.text.AnnotatedString
 import androidx.compose.ui.text.font.FontWeight
 import androidx.compose.ui.text.input.KeyboardType
+import androidx.compose.ui.text.style.TextAlign
 import androidx.compose.ui.unit.dp
 import com.torecastop.ledger.data.CashAdjustment
 import com.torecastop.ledger.intake.QrCodeGenerator
@@ -78,14 +79,33 @@ fun QuantityEntryDialog(
 }
 
 /**
- * Shows the seller intake QR code (and the raw link, with a copy button) for
- * one saved trade — "any seller that comes to our table" scans it to fill in
- * their own contact details on a form the team hosts elsewhere. (v1.3)
+ * Shows the outgoing "get customer to fill in details" QR (and the raw link,
+ * with a copy button — also the practical way to test this with one phone
+ * plus one computer, since the copied link can be pasted into a desktop
+ * browser standing in for the customer's phone). The customer scans it, fills
+ * in phone/email on their own device, and the page there renders their
+ * answers back as a second QR with no server involved; [onScanResponse]
+ * starts the follow-up scan of that response. [scanError] surfaces a failed
+ * attempt (stale code / unrecognized scan) inline so staff can retry without
+ * losing this dialog; [onRegenerate] gets a fresh code if the shown one is
+ * suspected stale. (v1.4 — replaces the old, never-configured seller intake
+ * QR, which needed a saved trade id and a human to match a spreadsheet
+ * response back by eye.)
+ *
+ * [nonce] is shown as a short reference code, and the same value is shown on
+ * the customer's page — with several stations potentially running QR
+ * exchanges at once, this lets staff eyeball-match "is this the right code"
+ * *before* attempting a scan, not just get a rejection after a wrong one
+ * (the scan itself is still independently checked against the nonce either
+ * way, so a missed mismatch here is never silently accepted).
  */
 @Composable
-fun SellerIntakeQrDialog(
+fun CustomerContactQrDialog(
     url: String,
-    tradeId: Long,
+    nonce: String,
+    scanError: String?,
+    onScanResponse: () -> Unit,
+    onRegenerate: () -> Unit,
     onDismiss: () -> Unit
 ) {
     val clipboard = LocalClipboardManager.current
@@ -93,23 +113,44 @@ fun SellerIntakeQrDialog(
 
     AlertDialog(
         onDismissRequest = onDismiss,
-        title = { Text("Seller intake — trade #$tradeId") },
+        title = { Text("Get details from customer's phone") },
         text = {
             Column(
                 modifier = Modifier.fillMaxWidth(),
                 horizontalAlignment = Alignment.CenterHorizontally
             ) {
                 Text(
-                    "Have the seller scan this to fill in their details. " +
-                        "Reference code $tradeId links their response back to this trade.",
+                    "Have the customer scan this with their own phone's camera. " +
+                        "Once they've filled in their details, tap \"Scan their response\" below.",
                     style = MaterialTheme.typography.bodyMedium,
                     color = MaterialTheme.colorScheme.onSurfaceVariant
                 )
                 Spacer(modifier = Modifier.height(12.dp))
-                Image(
-                    bitmap = qrBitmap.asImageBitmap(),
-                    contentDescription = "Seller intake QR code",
-                    modifier = Modifier.size(220.dp)
+                if (qrBitmap != null) {
+                    Image(
+                        bitmap = qrBitmap.asImageBitmap(),
+                        contentDescription = "Customer contact intake QR code",
+                        modifier = Modifier.size(220.dp)
+                    )
+                } else {
+                    Text(
+                        "Too many items to show as a code — the customer can use the link below instead.",
+                        style = MaterialTheme.typography.bodyMedium,
+                        color = MaterialTheme.colorScheme.error
+                    )
+                }
+                Spacer(modifier = Modifier.height(8.dp))
+                Text(
+                    "Reference: ${nonce.uppercase()}",
+                    style = MaterialTheme.typography.titleMedium,
+                    fontWeight = FontWeight.Bold
+                )
+                Text(
+                    "With more than one till running, check this matches the code on the " +
+                        "customer's screen before you scan.",
+                    style = MaterialTheme.typography.bodySmall,
+                    color = MaterialTheme.colorScheme.onSurfaceVariant,
+                    textAlign = TextAlign.Center
                 )
                 Spacer(modifier = Modifier.height(12.dp))
                 Row(verticalAlignment = Alignment.CenterVertically) {
@@ -123,9 +164,22 @@ fun SellerIntakeQrDialog(
                         Icon(Icons.Filled.ContentCopy, contentDescription = "Copy link")
                     }
                 }
+                if (scanError != null) {
+                    Spacer(modifier = Modifier.height(12.dp))
+                    Text(
+                        scanError,
+                        style = MaterialTheme.typography.bodyMedium,
+                        color = MaterialTheme.colorScheme.error
+                    )
+                }
+                Spacer(modifier = Modifier.height(12.dp))
+                TextButton(onClick = onRegenerate) { Text("Start over (new code)") }
             }
         },
-        confirmButton = { TextButton(onClick = onDismiss) { Text("Done") } }
+        confirmButton = {
+            TextButton(onClick = onScanResponse) { Text("Scan their response") }
+        },
+        dismissButton = { TextButton(onClick = onDismiss) { Text("Close") } }
     )
 }
 

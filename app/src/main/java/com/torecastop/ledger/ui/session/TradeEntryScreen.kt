@@ -46,10 +46,12 @@ import androidx.compose.ui.Modifier
 import androidx.compose.ui.text.font.FontWeight
 import androidx.compose.ui.text.input.KeyboardType
 import androidx.compose.ui.unit.dp
+import com.google.mlkit.vision.barcode.common.Barcode
 import com.torecastop.ledger.data.Trade
 import com.torecastop.ledger.data.TradeItem
 import com.torecastop.ledger.data.TradeWithItems
-import com.torecastop.ledger.intake.SellerIntakeForm
+import com.torecastop.ledger.intake.CustomerIntakeQr
+import com.torecastop.ledger.intake.CustomerIntakeScan
 import com.torecastop.ledger.ui.scan.BarcodeScannerScreen
 import java.io.File
 
@@ -77,8 +79,10 @@ fun TradeEntryScreen(
         cashDirection: String,
         note: String?,
         tradePhotoPaths: List<String>,
+        customerName: String?,
         customerPhone: String?,
-        customerEmail: String?
+        customerEmail: String?,
+        customerAddress: String?
     ) -> Unit,
     onSaveEdit: (
         trade: Trade,
@@ -130,15 +134,20 @@ fun TradeEntryScreen(
         mutableStateOf(existing?.trade?.cashDirection ?: Trade.CASH_STORE_RECEIVES)
     }
     var note by remember { mutableStateOf(existing?.trade?.note ?: "") }
+    var customerName by remember { mutableStateOf(existing?.trade?.customerName ?: "") }
     var customerPhone by remember { mutableStateOf(existing?.trade?.customerPhone ?: "") }
     var customerEmail by remember { mutableStateOf(existing?.trade?.customerEmail ?: "") }
+    var customerAddress by remember { mutableStateOf(existing?.trade?.customerAddress ?: "") }
     var tradePhotoPaths by remember {
         mutableStateOf<List<String>>(existing?.tradePhotos?.map { it.photoPath } ?: emptyList())
     }
     var showScanner by remember { mutableStateOf(false) }
     var confirmDelete by remember { mutableStateOf(false) }
     var confirmHighValue by remember { mutableStateOf(false) }
-    var showIntakeQr by remember { mutableStateOf(false) }
+    var customerFillNonce by remember { mutableStateOf<String?>(null) }
+    var showCustomerFillDialog by remember { mutableStateOf(false) }
+    var showResponseScanner by remember { mutableStateOf(false) }
+    var responseScanError by remember { mutableStateOf<String?>(null) }
 
     fun cancel() {
         // Nothing captured here is attached to a saved trade yet — clean up
@@ -152,12 +161,50 @@ fun TradeEntryScreen(
         onCancel()
     }
 
-    BackHandler { if (showScanner) showScanner = false else cancel() }
+    BackHandler {
+        when {
+            showScanner -> showScanner = false
+            showResponseScanner -> showResponseScanner = false
+            else -> cancel()
+        }
+    }
 
     if (showScanner) {
         BarcodeScannerScreen(
             onResult = { outSku = it; showScanner = false },
             onCancel = { showScanner = false }
+        )
+        return
+    }
+
+    if (showResponseScanner) {
+        BarcodeScannerScreen(
+            onResult = { raw ->
+                showResponseScanner = false
+                when (val result = CustomerIntakeQr.parseScan(raw, customerFillNonce.orEmpty())) {
+                    is CustomerIntakeScan.Success -> {
+                        result.name?.let { customerName = it }
+                        result.phone?.let { customerPhone = it }
+                        result.email?.let { customerEmail = it }
+                        result.address?.let { customerAddress = it }
+                        responseScanError = null
+                        showCustomerFillDialog = false
+                    }
+                    CustomerIntakeScan.NonceMismatch -> {
+                        responseScanError =
+                            "That code doesn't match this trade — ask the customer to scan the QR again."
+                        showCustomerFillDialog = true
+                    }
+                    CustomerIntakeScan.NotRecognized -> {
+                        responseScanError = "That doesn't look like a customer-details code — try again."
+                        showCustomerFillDialog = true
+                    }
+                }
+            },
+            onCancel = { showResponseScanner = false; showCustomerFillDialog = true },
+            title = "Scan customer's code",
+            permissionRationale = "The camera is used to scan the code shown on the customer's phone.",
+            formats = listOf(Barcode.FORMAT_QR_CODE)
         )
         return
     }
@@ -217,8 +264,10 @@ fun TradeEntryScreen(
                     note = note.trim().ifBlank { null },
                     cashAmount = cashAmount,
                     cashDirection = cashDirection,
+                    customerName = customerName.trim().ifBlank { null },
                     customerPhone = customerPhone.trim().ifBlank { null },
-                    customerEmail = customerEmail.trim().ifBlank { null }
+                    customerEmail = customerEmail.trim().ifBlank { null },
+                    customerAddress = customerAddress.trim().ifBlank { null }
                 ),
                 items,
                 itemPhotoPaths,
@@ -232,8 +281,10 @@ fun TradeEntryScreen(
                 cashDirection,
                 note.trim().ifBlank { null },
                 tradePhotoPaths,
+                customerName.trim().ifBlank { null },
                 customerPhone.trim().ifBlank { null },
-                customerEmail.trim().ifBlank { null }
+                customerEmail.trim().ifBlank { null },
+                customerAddress.trim().ifBlank { null }
             )
         }
     }
@@ -270,14 +321,23 @@ fun TradeEntryScreen(
         )
     }
 
-    if (showIntakeQr && existing != null) {
-        SellerIntakeForm.urlFor(existing.trade.id)?.let { url ->
-            SellerIntakeQrDialog(
-                url = url,
-                tradeId = existing.trade.id,
-                onDismiss = { showIntakeQr = false }
+    if (showCustomerFillDialog && customerFillNonce != null) {
+        val itemSummaries = (effectiveOut + effectiveIn).map {
+            CustomerIntakeQr.TradeItemSummary(
+                direction = it.direction,
+                label = it.label,
+                quantity = it.quantity,
+                saleCost = it.saleCost ?: 0.0
             )
         }
+        CustomerContactQrDialog(
+            url = CustomerIntakeQr.urlFor(customerFillNonce!!, itemSummaries),
+            nonce = customerFillNonce!!,
+            scanError = responseScanError,
+            onScanResponse = { showCustomerFillDialog = false; showResponseScanner = true },
+            onRegenerate = { customerFillNonce = CustomerIntakeQr.generateNonce(); responseScanError = null },
+            onDismiss = { showCustomerFillDialog = false }
+        )
     }
 
     Scaffold(
@@ -519,8 +579,16 @@ fun TradeEntryScreen(
 
             Spacer(modifier = Modifier.height(16.dp))
 
-            // --- Seller/customer contact (optional, v1.3) ---
+            // --- Seller/customer contact (optional, v1.3; name/address v1.4) ---
             Text("Seller contact — optional", style = MaterialTheme.typography.titleMedium)
+            Spacer(modifier = Modifier.height(8.dp))
+            OutlinedTextField(
+                value = customerName,
+                onValueChange = { customerName = it },
+                label = { Text("Full name") },
+                singleLine = true,
+                modifier = Modifier.fillMaxWidth()
+            )
             Spacer(modifier = Modifier.height(8.dp))
             OutlinedTextField(
                 value = customerPhone,
@@ -539,11 +607,21 @@ fun TradeEntryScreen(
                 keyboardOptions = KeyboardOptions(keyboardType = KeyboardType.Email),
                 modifier = Modifier.fillMaxWidth()
             )
-            if (isEdit && SellerIntakeForm.isConfigured) {
-                Spacer(modifier = Modifier.height(8.dp))
-                TextButton(onClick = { showIntakeQr = true }) {
-                    Text("Show seller intake QR")
-                }
+            Spacer(modifier = Modifier.height(8.dp))
+            OutlinedTextField(
+                value = customerAddress,
+                onValueChange = { customerAddress = it },
+                label = { Text("Address") },
+                singleLine = false,
+                maxLines = 3,
+                modifier = Modifier.fillMaxWidth()
+            )
+            Spacer(modifier = Modifier.height(8.dp))
+            TextButton(onClick = {
+                if (customerFillNonce == null) customerFillNonce = CustomerIntakeQr.generateNonce()
+                showCustomerFillDialog = true
+            }) {
+                Text("Get details from customer's phone")
             }
 
             Spacer(modifier = Modifier.height(16.dp))
