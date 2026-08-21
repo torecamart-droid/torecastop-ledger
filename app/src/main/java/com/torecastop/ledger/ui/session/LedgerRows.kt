@@ -235,7 +235,7 @@ internal fun TradeRow(
                         color = MaterialTheme.colorScheme.onSurfaceVariant
                     )
                 }
-                val contact = listOfNotNull(trade.customerPhone, trade.customerEmail)
+                val contact = listOfNotNull(trade.customerName, trade.customerPhone, trade.customerEmail)
                 if (contact.isNotEmpty()) {
                     Text(
                         contact.joinToString(" · "),

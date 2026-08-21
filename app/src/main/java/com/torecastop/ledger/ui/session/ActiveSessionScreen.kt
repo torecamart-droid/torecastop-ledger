@@ -157,9 +157,9 @@ fun ActiveSessionScreen(viewModel: ActiveSessionViewModel) {
         is Panel.TradeForm -> {
             TradeEntryScreen(
                 existing = p.existing,
-                onSaveNew = { items, itemPhotoPaths, cashAmount, cashDirection, note, tradePhotoPaths, phone, email ->
+                onSaveNew = { items, itemPhotoPaths, cashAmount, cashDirection, note, tradePhotoPaths, name, phone, email, address ->
                     viewModel.addTrade(
-                        items, itemPhotoPaths, cashAmount, cashDirection, note, tradePhotoPaths, phone, email
+                        items, itemPhotoPaths, cashAmount, cashDirection, note, tradePhotoPaths, name, phone, email, address
                     )
                     panel = Panel.Ledger
                 },

@@ -63,9 +63,12 @@ import kotlinx.coroutines.delay
 import java.util.concurrent.Executors
 
 /**
- * Full-screen barcode scanner. Reads the Code 128 labels the Label Generator
- * prints, returning the first decoded value through [onResult]. [onCancel]
- * backs out without a result.
+ * Full-screen barcode scanner. Reads Code 128 (the Label Generator's SKU
+ * labels) and QR (customer contact-intake responses, v1.4), returning the
+ * first decoded value through [onResult]. [onCancel] backs out without a
+ * result. [title] and [permissionRationale] let a second use of this same
+ * screen (e.g. scanning a customer's response code) show copy that matches
+ * what's actually being scanned, rather than always saying "SKU."
  *
  * A successful decode fires a short vibration + beep and flashes a checkmark
  * overlay, so the operator knows the scan registered without studying the
@@ -73,7 +76,12 @@ import java.util.concurrent.Executors
  */
 @OptIn(ExperimentalPermissionsApi::class, ExperimentalMaterial3Api::class)
 @Composable
-fun BarcodeScannerScreen(onResult: (String) -> Unit, onCancel: () -> Unit) {
+fun BarcodeScannerScreen(
+    onResult: (String) -> Unit,
+    onCancel: () -> Unit,
+    title: String = "Scan SKU",
+    permissionRationale: String = "The camera is only used to read the SKU barcodes on your card labels."
+) {
     val context = LocalContext.current
     val cameraPermission = rememberPermissionState(Manifest.permission.CAMERA)
 
@@ -92,7 +100,7 @@ fun BarcodeScannerScreen(onResult: (String) -> Unit, onCancel: () -> Unit) {
     Scaffold(
         topBar = {
             TopAppBar(
-                title = { Text("Scan SKU") },
+                title = { Text(title) },
                 navigationIcon = {
                     IconButton(onClick = onCancel) {
                         Icon(Icons.Filled.Close, contentDescription = "Cancel scan")
@@ -130,7 +138,7 @@ fun BarcodeScannerScreen(onResult: (String) -> Unit, onCancel: () -> Unit) {
                         modifier = Modifier.padding(top = 16.dp)
                     )
                     Text(
-                        "The camera is only used to read the SKU barcodes on your card labels.",
+                        permissionRationale,
                         style = MaterialTheme.typography.bodyLarge,
                         textAlign = TextAlign.Center,
                         color = MaterialTheme.colorScheme.onSurfaceVariant,
@@ -210,7 +218,8 @@ private fun CameraPreview(onBarcode: (String) -> Unit) {
     val scanner = remember {
         BarcodeScanning.getClient(
             BarcodeScannerOptions.Builder()
-                .setBarcodeFormats(Barcode.FORMAT_CODE_128)
+                // Code128 for SKU labels, QR for customer contact-intake responses (v1.4).
+                .setBarcodeFormats(Barcode.FORMAT_CODE_128, Barcode.FORMAT_QR_CODE)
                 .build()
         )
     }

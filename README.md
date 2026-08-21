@@ -200,24 +200,51 @@ additive, existing data kept):
 - **Seller contact fields on a trade.** Optional `customerPhone`/
   `customerEmail` on `Trade`, entered on the trade screen, shown on the row,
   exported as `customer_phone`/`customer_email` columns in `trades.csv`.
-- **QR code linking a seller to a saved trade.** From the planning doc: "any
-  seller that comes to our table" scans a QR code to fill in their own
-  details on a form the team hosts (Google Form or similar) — deliberately
-  **not** a live Forms/Sheets integration (too big a lift for a sideloaded,
-  offline-first app); the QR just encodes a URL with the trade's own id as a
-  reference code, and the form should ask the seller to copy that code in so
-  staff can match the response back by eye. `SellerIntakeForm.FORM_URL_TEMPLATE`
-  is the one thing to configure (a `{ref}` placeholder gets replaced with the
-  trade id) — until it's set, the "Show seller intake QR" button (visible only
-  once a trade is saved, since it needs a real id) doesn't appear. QR
-  generation is fully on-device (`zxing-core`, encoding only — no camera/scan
-  use), so nothing here touches the network.
+- **QR code linking a seller to a saved trade.** ⚠️ *Historical record — this
+  mechanism was replaced in v1.4 (see below) and its code
+  (`SellerIntakeForm.kt`) removed; it never shipped configured/enabled in any
+  real build.* From the planning doc: "any seller that comes to our table"
+  scans a QR code to fill in their own details on a form the team hosts
+  (Google Form or similar) — deliberately **not** a live Forms/Sheets
+  integration (too big a lift for a sideloaded, offline-first app); the QR
+  just encodes a URL with the trade's own id as a reference code, and the
+  form should ask the seller to copy that code in so staff can match the
+  response back by eye. `SellerIntakeForm.FORM_URL_TEMPLATE` is the one thing
+  to configure (a `{ref}` placeholder gets replaced with the trade id) —
+  until it's set, the "Show seller intake QR" button (visible only once a
+  trade is saved, since it needs a real id) doesn't appear. QR generation is
+  fully on-device (`zxing-core`, encoding only — no camera/scan use), so
+  nothing here touches the network.
 - Bump `versionCode`/`versionName` to 1.3 per the release convention.
 
 **Planned v1.4** — external integrations & multi-till workflow (bigger scope
 than v1.3 — network-dependent and/or cross-device, so kept separate). The
-Shopify item below is on hold; multi-till consolidation is not:
+Shopify item below is on hold; multi-till consolidation and customer contact
+intake are not:
 
+- **Customer self-serve contact intake, replacing staff-typed phone/email.**
+  Trades have always had a "Seller contact — optional" section where a
+  *staff member* types the customer's phone/email. Instead: staff shows a QR
+  (via a new `CustomerIntakeQr.kt`, replacing the old, never-configured
+  `SellerIntakeForm.kt` above) linking to a small static form
+  (`docs/intake.html`) that the *customer* fills in on their *own* phone —
+  no app install needed, any camera app recognizes the link. That page
+  renders their answers back as a **second** QR, generated entirely
+  client-side (a vendored copy of `kazuhikoarase/qrcode-generator`, MIT) —
+  nothing is ever transmitted anywhere, so the page works over any
+  connection that can merely load it once. Staff scans that response back in
+  with the same `BarcodeScannerScreen` already used for SKUs (broadened to
+  also decode QR, alongside Code128). A short client-side nonce, not a
+  persisted trade id, correlates the outgoing/response pair, so — unlike the
+  mechanism it replaces — this works before a trade is ever saved, in both
+  new-trade and edit flows, and a stale or unrecognized scan is rejected
+  with a clear message rather than silently misattributing one customer's
+  details to another trade's record. The manual phone/email fields remain,
+  unconditionally, for a customer without a working smartphone/camera.
+  Hosting: GitHub Pages serving the repo's `docs/` folder (the repo is
+  already public; `raw.githubusercontent.com`, used elsewhere in this repo
+  for `update-manifest.json`, can't serve this — it forces `text/plain`,
+  which won't render an interactive page).
 - **Shopify SKU lookup, to double-check faulty scans.** ⏸️ **On hold** — Dan
   asked to hold off on this one for now (2026-08-21), reason not recorded.
   Don't start building it without checking in first. Read-only — not
@@ -267,6 +294,7 @@ torecastop-ledger/
 ├── settings.gradle.kts, build.gradle.kts, gradle.properties
 ├── gradle/libs.versions.toml          # all dependency versions
 ├── gradle/wrapper/…                    # Gradle version pin
+├── docs/intake.html                    # customer contact-intake form, served via GitHub Pages (v1.4)
 └── app/
     ├── build.gradle.kts                # module config, minSdk 29 / target 35
     └── src/main/
@@ -293,7 +321,7 @@ torecastop-ledger/
         │   │   ├── PhotoStorage.kt     # photo capture target + capture-time compression
         │   │   └── LedgerExporter.kt   # builds the sales.csv + trades.csv + cash.csv + photos zip
         │   ├── intake/
-        │   │   ├── SellerIntakeForm.kt # configurable seller-intake form URL (per trade id)
+        │   │   ├── CustomerIntakeQr.kt # nonce/URL/payload for the customer contact-intake QR round-trip
         │   │   └── QrCodeGenerator.kt  # on-device QR bitmap generation (encoding only)
         │   ├── update/
         │   │   └── UpdateChecker.kt    # network-optional check against a release manifest
