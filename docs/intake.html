@@ -69,6 +69,12 @@
     padding: 10px;
     margin-top: 0;
   }
+  #referenceLine {
+    font-weight: 700;
+    font-size: 1.1rem;
+    letter-spacing: 0.05em;
+    margin: 12px 0 4px;
+  }
 </style>
 </head>
 <body>
@@ -80,6 +86,11 @@
 
   <div id="itemsSummary" hidden></div>
   <p id="todayLine" class="hint"></p>
+  <p id="referenceLine"></p>
+  <p class="hint">
+    If a stallholder is checking multiple customers at once, make sure this matches
+    the reference on their screen before they scan your code.
+  </p>
 
   <div id="missingCode" hidden>
     <p><strong>This link is missing a code.</strong> Ask staff to show you the QR code again.</p>
@@ -2424,6 +2435,9 @@ var qrcode = function() {
       document.getElementById('todayLine').textContent =
         'Today: ' + new Date().toLocaleDateString(undefined,
           { weekday: 'long', day: 'numeric', month: 'long', year: 'numeric' });
+
+      document.getElementById('referenceLine').textContent =
+        'Reference: ' + nonce.toUpperCase();
 
       function escapeHtml(s) {
         return s.replace(/&/g, '&amp;').replace(/</g, '&lt;').replace(/>/g, '&gt;').replace(/"/g, '&quot;');

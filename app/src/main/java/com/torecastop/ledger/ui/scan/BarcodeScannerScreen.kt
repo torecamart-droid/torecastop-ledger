@@ -63,12 +63,21 @@ import kotlinx.coroutines.delay
 import java.util.concurrent.Executors
 
 /**
- * Full-screen barcode scanner. Reads Code 128 (the Label Generator's SKU
- * labels) and QR (customer contact-intake responses, v1.4), returning the
- * first decoded value through [onResult]. [onCancel] backs out without a
- * result. [title] and [permissionRationale] let a second use of this same
- * screen (e.g. scanning a customer's response code) show copy that matches
- * what's actually being scanned, rather than always saying "SKU."
+ * Full-screen barcode scanner, returning the first decoded value through
+ * [onResult]. [onCancel] backs out without a result. [title] and
+ * [permissionRationale] let a second use of this same screen (e.g. scanning
+ * a customer's response code) show copy that matches what's actually being
+ * scanned, rather than always saying "SKU."
+ *
+ * [formats] scopes which barcode formats are actually decoded — defaults to
+ * Code 128 only (the Label Generator's SKU labels). Deliberately NOT a
+ * union of every format this app ever scans: with customer contact-intake
+ * QR codes now circulating near the till (v1.4), a SKU scan that also
+ * decoded QR could pick up a nearby customer's QR code instead of the
+ * intended barcode — the SKU field has no format validation, so that would
+ * silently save garbage. Each call site should request only the format(s)
+ * it can legitimately expect (see the response-scan call site in
+ * TradeEntryScreen.kt, which passes `listOf(Barcode.FORMAT_QR_CODE)`).
  *
  * A successful decode fires a short vibration + beep and flashes a checkmark
  * overlay, so the operator knows the scan registered without studying the
@@ -80,7 +89,8 @@ fun BarcodeScannerScreen(
     onResult: (String) -> Unit,
     onCancel: () -> Unit,
     title: String = "Scan SKU",
-    permissionRationale: String = "The camera is only used to read the SKU barcodes on your card labels."
+    permissionRationale: String = "The camera is only used to read the SKU barcodes on your card labels.",
+    formats: List<Int> = listOf(Barcode.FORMAT_CODE_128)
 ) {
     val context = LocalContext.current
     val cameraPermission = rememberPermissionState(Manifest.permission.CAMERA)
@@ -116,7 +126,7 @@ fun BarcodeScannerScreen(
             contentAlignment = Alignment.Center
         ) {
             if (cameraPermission.status.isGranted) {
-                CameraPreview(onBarcode = { if (decoded == null) decoded = it })
+                CameraPreview(formats = formats, onBarcode = { if (decoded == null) decoded = it })
                 decoded?.let { value -> ScanConfirmedOverlay(value) }
             } else {
                 Column(
@@ -207,7 +217,7 @@ private fun playScanFeedback(context: Context) {
 
 @androidx.annotation.OptIn(ExperimentalGetImage::class)
 @Composable
-private fun CameraPreview(onBarcode: (String) -> Unit) {
+private fun CameraPreview(formats: List<Int>, onBarcode: (String) -> Unit) {
     val context = LocalContext.current
     val lifecycleOwner = LocalLifecycleOwner.current
     val analysisExecutor = remember { Executors.newSingleThreadExecutor() }
@@ -215,11 +225,10 @@ private fun CameraPreview(onBarcode: (String) -> Unit) {
     // Guard so the first successful decode wins; later frames are ignored.
     val handled = remember { java.util.concurrent.atomic.AtomicBoolean(false) }
 
-    val scanner = remember {
+    val scanner = remember(formats) {
         BarcodeScanning.getClient(
             BarcodeScannerOptions.Builder()
-                // Code128 for SKU labels, QR for customer contact-intake responses (v1.4).
-                .setBarcodeFormats(Barcode.FORMAT_CODE_128, Barcode.FORMAT_QR_CODE)
+                .setBarcodeFormats(formats.first(), *formats.drop(1).toIntArray())
                 .build()
         )
     }

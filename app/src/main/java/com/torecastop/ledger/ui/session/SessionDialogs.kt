@@ -38,6 +38,7 @@ import androidx.compose.ui.platform.LocalClipboardManager
 import androidx.compose.ui.text.AnnotatedString
 import androidx.compose.ui.text.font.FontWeight
 import androidx.compose.ui.text.input.KeyboardType
+import androidx.compose.ui.text.style.TextAlign
 import androidx.compose.ui.unit.dp
 import com.torecastop.ledger.data.CashAdjustment
 import com.torecastop.ledger.intake.QrCodeGenerator
@@ -90,10 +91,18 @@ fun QuantityEntryDialog(
  * suspected stale. (v1.4 — replaces the old, never-configured seller intake
  * QR, which needed a saved trade id and a human to match a spreadsheet
  * response back by eye.)
+ *
+ * [nonce] is shown as a short reference code, and the same value is shown on
+ * the customer's page — with several stations potentially running QR
+ * exchanges at once, this lets staff eyeball-match "is this the right code"
+ * *before* attempting a scan, not just get a rejection after a wrong one
+ * (the scan itself is still independently checked against the nonce either
+ * way, so a missed mismatch here is never silently accepted).
  */
 @Composable
 fun CustomerContactQrDialog(
     url: String,
+    nonce: String,
     scanError: String?,
     onScanResponse: () -> Unit,
     onRegenerate: () -> Unit,
@@ -130,6 +139,19 @@ fun CustomerContactQrDialog(
                         color = MaterialTheme.colorScheme.error
                     )
                 }
+                Spacer(modifier = Modifier.height(8.dp))
+                Text(
+                    "Reference: ${nonce.uppercase()}",
+                    style = MaterialTheme.typography.titleMedium,
+                    fontWeight = FontWeight.Bold
+                )
+                Text(
+                    "With more than one till running, check this matches the code on the " +
+                        "customer's screen before you scan.",
+                    style = MaterialTheme.typography.bodySmall,
+                    color = MaterialTheme.colorScheme.onSurfaceVariant,
+                    textAlign = TextAlign.Center
+                )
                 Spacer(modifier = Modifier.height(12.dp))
                 Row(verticalAlignment = Alignment.CenterVertically) {
                     Text(

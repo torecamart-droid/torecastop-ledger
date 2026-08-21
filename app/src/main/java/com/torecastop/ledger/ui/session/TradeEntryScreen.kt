@@ -46,6 +46,7 @@ import androidx.compose.ui.Modifier
 import androidx.compose.ui.text.font.FontWeight
 import androidx.compose.ui.text.input.KeyboardType
 import androidx.compose.ui.unit.dp
+import com.google.mlkit.vision.barcode.common.Barcode
 import com.torecastop.ledger.data.Trade
 import com.torecastop.ledger.data.TradeItem
 import com.torecastop.ledger.data.TradeWithItems
@@ -202,7 +203,8 @@ fun TradeEntryScreen(
             },
             onCancel = { showResponseScanner = false; showCustomerFillDialog = true },
             title = "Scan customer's code",
-            permissionRationale = "The camera is used to scan the code shown on the customer's phone."
+            permissionRationale = "The camera is used to scan the code shown on the customer's phone.",
+            formats = listOf(Barcode.FORMAT_QR_CODE)
         )
         return
     }
@@ -330,6 +332,7 @@ fun TradeEntryScreen(
         }
         CustomerContactQrDialog(
             url = CustomerIntakeQr.urlFor(customerFillNonce!!, itemSummaries),
+            nonce = customerFillNonce!!,
             scanError = responseScanError,
             onScanResponse = { showCustomerFillDialog = false; showResponseScanner = true },
             onRegenerate = { customerFillNonce = CustomerIntakeQr.generateNonce(); responseScanError = null },
