@@ -59,14 +59,31 @@ object LedgerExporter {
 
             // Any number of photos per sale/trade — whole-transaction and
             // per-item/per-card alike (v1.3 revision).
+            //
+            // `distinct()` matters: a duplicate zip entry is a hard crash
+            // (ZipException), which took out the whole export. Duplicate photo
+            // rows pointing at one file were reachable in the wild — see the
+            // photo cleanup in LedgerRepository.updateSale/updateTrade — and an
+            // export must stay readable even against already-duplicated rows.
             val photoPaths =
-                sales.flatMap { it.photos.map { p -> p.photoPath } } +
+                (sales.flatMap { it.photos.map { p -> p.photoPath } } +
                     trades.flatMap { it.photos.map { p -> p.photoPath } } +
-                    listOfNotNull(session.cashCountPhotoPath)
+                    listOfNotNull(session.cashCountPhotoPath))
+                    .distinct()
+            val usedEntryNames = mutableSetOf<String>()
             photoPaths.forEach { path ->
                 val photo = File(path)
                 if (!photo.exists()) return@forEach
-                zip.putNextEntry(ZipEntry("photos/${photo.name}"))
+                // Distinct paths can still collide on name (PhotoStorage names
+                // by prefix + millisecond). De-collide rather than crash: a
+                // filename that doesn't match its CSV column is recoverable,
+                // a failed export isn't.
+                var entryName = photo.name
+                var suffix = 1
+                while (!usedEntryNames.add(entryName)) {
+                    entryName = "${photo.nameWithoutExtension}_${suffix++}.${photo.extension}"
+                }
+                zip.putNextEntry(ZipEntry("photos/$entryName"))
                 photo.inputStream().use { it.copyTo(zip) }
                 zip.closeEntry()
             }

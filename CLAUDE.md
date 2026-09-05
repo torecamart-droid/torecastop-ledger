@@ -10,7 +10,8 @@ confirm quantity/price, save, repeat; export the day's session as a zip
 (CSV + photos). Internal tool, sideloaded — not on the Play Store, no backend,
 no tests directory exists yet.
 
-**Current status: v1.4 is shipped** — merged to `main`, tagged as a public
+**Current status: v1.4.1 is shipped** (v1.4 plus the export-crash hotfix
+described under the sale/photo rules below) — merged to `main`, tagged as a public
 GitHub Release with a signed `app-release.apk` attached. This release is the
 customer contact-intake QR round-trip (see "Customer contact-intake QR"
 below); the other originally-planned v1.4 item, multi-till session
@@ -76,7 +77,14 @@ changing behavior, not just the DAOs:
   table keyed by `saleId` with a nullable `saleItemId` — inserting them
   requires the generated `SaleItem` ids first, so `addSale`/`updateSale` use
   `saleItemDao.insertAll(...)` (which returns the generated ids) before
-  attaching photos.
+  attaching photos. **On edit, clear photos explicitly via
+  `salePhotoDao.deleteForSale(...)` / `tradePhotoDao.deleteForTrade(...)`
+  before re-inserting** — deleting the item rows only cascades away *per-item*
+  photos, since whole-transaction photos carry a NULL `saleItemId`/
+  `tradeItemId` and match no cascade. Missing that let every edit re-insert
+  them, duplicating rows that pointed at one file, which later crashed the
+  export with a duplicate zip entry (fixed in v1.4.1; `LedgerExporter` also
+  now de-dupes defensively, since already-duplicated rows exist in the wild).
 - A **trade** mirrors that shape: one `Trade` header (note, timestamp, cash
   amount + direction, optional `customerPhone`/`customerEmail`) plus N
   `TradeItem` lines. Each item has a `direction` (OUT = your stock, scanned by

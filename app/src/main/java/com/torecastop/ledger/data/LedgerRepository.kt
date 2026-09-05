@@ -148,7 +148,13 @@ class LedgerRepository(private val db: LedgerDatabase) {
         salePhotoPaths: List<String> = emptyList()
     ) = db.withTransaction {
         saleDao.update(sale.copy(note = sale.note?.ifBlank { null }))
-        saleItemDao.deleteForSale(sale.id) // cascades away the old sale_photos too
+        // Clear every photo explicitly before re-inserting what the edit passed
+        // back. Deleting the items only cascades away per-item photos —
+        // whole-sale photos carry a NULL saleItemId, so nothing cascaded them
+        // and each edit re-inserted them, duplicating rows that pointed at the
+        // same file. That later crashed the export with a duplicate zip entry.
+        salePhotoDao.deleteForSale(sale.id)
+        saleItemDao.deleteForSale(sale.id)
         val itemIds = saleItemDao.insertAll(items.map { it.copy(id = 0, saleId = sale.id) })
         insertSalePhotos(sale.id, itemIds, itemPhotoPaths, salePhotoPaths)
     }
@@ -231,7 +237,11 @@ class LedgerRepository(private val db: LedgerDatabase) {
         tradePhotoPaths: List<String> = emptyList()
     ) = db.withTransaction {
         tradeDao.update(trade.copy(note = trade.note?.ifBlank { null }))
-        tradeItemDao.deleteForTrade(trade.id) // cascades away the old trade_photos too
+        // Same as updateSale: whole-trade photos (NULL tradeItemId) aren't
+        // reachable by the item cascade, so clear them explicitly or every
+        // edit duplicates them and eventually crashes the export.
+        tradePhotoDao.deleteForTrade(trade.id)
+        tradeItemDao.deleteForTrade(trade.id)
         val itemIds = tradeItemDao.insertAll(items.map { it.copy(id = 0, tradeId = trade.id) })
         insertTradePhotos(trade.id, itemIds, itemPhotoPaths, tradePhotoPaths)
     }
